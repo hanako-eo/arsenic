@@ -168,6 +168,10 @@ pub const Lexer = struct {
         return Self{ .source = source, .ch = source.buffer[0] };
     }
 
+    pub fn has_tokens(self: *Self) bool {
+        return self.ch != 0;
+    }
+
     pub fn next_token(self: *Self) LexerError!Token {
         self.skip_whitespace();
 
@@ -325,8 +329,7 @@ pub const Lexer = struct {
                         self.forward();
                     }
                 },
-                0, '.', '0'...'9' => {},
-                else => if (!(std.ascii.isDigit(char) or std.ascii.isWhitespace(char) or char == '.'))
+                else => if (std.ascii.isAlphabetic(char))
                     return LexerError.InvalidNumberFormat,
             }
         }
