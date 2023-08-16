@@ -1,5 +1,6 @@
 const std = @import("std");
 const lexer = @import("./lexer.zig");
+const parser = @import("./parser.zig");
 const File = @import("./file.zig").File;
 
 const log = std.log;
@@ -24,9 +25,13 @@ pub fn main() !void {
     const buffer = try file.read();
 
     var lex = lexer.Lexer.init(.{ .file_name = args[1], .buffer = buffer });
+    var tokens = std.ArrayList(lexer.Token).init(allocator);
+    defer tokens.deinit();
 
     while (lex.has_tokens()) {
-        const token = try lex.next_token();
-        std.debug.print("{}\n", .{token});
+        try tokens.append(try lex.next_token());
     }
+    try tokens.append(.eof);
+
+    std.debug.print("\n\n{}\n\n", .{try parser.Parser.parse(allocator, &tokens)});
 }
