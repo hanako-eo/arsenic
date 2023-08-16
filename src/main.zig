@@ -1,14 +1,14 @@
 const std = @import("std");
-const Lexer = @import("./lexer.zig").Lexer;
+const lexer = @import("./lexer.zig");
 const File = @import("./file.zig").File;
 
 const log = std.log;
 const process = std.process;
 
 pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    const allocator = gpa.allocator();
-    defer _ = gpa.deinit();
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    const allocator = arena.allocator();
+    defer arena.deinit();
 
     const args = try process.argsAlloc(allocator);
     defer process.argsFree(allocator, args);
@@ -23,9 +23,8 @@ pub fn main() !void {
 
     const buffer = try file.read();
 
-    var lex = Lexer.init(.{ .file_name = args[1], .buffer = buffer });
+    var lex = lexer.Lexer.init(.{ .file_name = args[1], .buffer = buffer });
 
-    std.debug.print("{s}\n", .{buffer});
     while (lex.has_tokens()) {
         const token = try lex.next_token();
         std.debug.print("{}\n", .{token});
