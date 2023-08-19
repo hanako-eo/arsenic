@@ -11,6 +11,7 @@ const Statement = union(enum) {
     },
     function_declaration: struct {
         name: []const u8,
+        args: std.ArrayList([]const u8),
         statements: std.ArrayList(Statement),
     },
 };
@@ -158,6 +159,11 @@ pub const Parser = struct {
         return parser.parse_statements();
     }
 
+    /// Test if the current token if it's possible
+    inline fn check(self: *Self, token: lexer.Token) bool {
+        return @intFromEnum(self.current_token) == @intFromEnum(token);
+    }
+
     /// Skip the current token if it's possible
     fn skip(self: *Self) void {
         self.current_token_index += 1;
@@ -184,7 +190,7 @@ pub const Parser = struct {
 
     fn parse_statements(self: *Self) !std.ArrayList(Statement) {
         var statements = std.ArrayList(Statement).init(self.allocator);
-        while (self.current_token != .eof) {
+        while (!self.check(.eof)) {
             if (try self.parse_statement()) |stmt|
                 try statements.append(stmt);
         }
@@ -195,6 +201,7 @@ pub const Parser = struct {
     fn parse_statement(self: *Self) !?Statement {
         return switch (self.current_token) {
             .kw_const, .kw_let => self.parse_var_declaration(),
+            .kw_function => try self.parse_function(),
             .kw_export => blk: {
                 self.eat(.kw_export);
                 if (try self.parse_statement()) |stmt| {
@@ -212,9 +219,53 @@ pub const Parser = struct {
         };
     }
 
+    /// Parse statement as follows `func fonction_name(args) {code;}`
+    fn parse_function(self: *Self) anyerror!Statement {
+        self.skip();
+        const name = switch (self.current_token) {
+            .ident => |name| name,
+            else => {
+                std.log.err("invalid token expected an identifier but receive \"{}\"", .{self.current_token});
+                std.process.exit(1);
+            },
+        };
+        self.skip();
+        self.eat(.lparent);
+        var args = std.ArrayList([]const u8).init(self.allocator);
+        while (!self.check(.rparent)) {
+            const arg = switch (self.current_token) {
+                .ident => |arg_name| arg_name,
+                else => {
+                    std.log.err("invalid token expected an identifier but receive \"{}\"", .{self.current_token});
+                    std.process.exit(1);
+                },
+            };
+            try args.append(arg);
+            self.skip();
+            if (!self.check(.comma))
+                break self.eat(.comma);
+        }
+        self.eat(.rparent);
+
+        self.eat(.lbrace);
+        var statements = std.ArrayList(Statement).init(self.allocator);
+        while (!self.check(.rparent)) {
+            if (try self.parse_statement()) |stmt| {
+                try statements.append(stmt);
+            } else break;
+        }
+        self.eat(.rbrace);
+
+        return .{ .function_declaration = .{
+            .name = name,
+            .args = args,
+            .statements = statements,
+        } };
+    }
+
     /// Parse statement as follows `const|let var_name = value;`
     fn parse_var_declaration(self: *Self) Statement {
-        const is_constant = self.current_token == .kw_const;
+        const is_constant = self.check(.kw_const);
         self.skip();
         const name = switch (self.current_token) {
             .ident => |name| name,
@@ -256,7 +307,7 @@ pub const Parser = struct {
                 break :blk .{ .char_litteral = char };
             },
             .kw_true, .kw_false => blk: {
-                const is_true = self.current_token == .kw_true;
+                const is_true = self.check(.kw_true);
                 self.skip();
                 break :blk .{ .bool_litteral = is_true };
             },
@@ -285,7 +336,7 @@ pub const Parser = struct {
 
     /// Parse expression like `+1` or `-1`
     fn parse_unary(self: *Self) Expr {
-        if (self.current_token == lexer.Token.plus or self.current_token == lexer.Token.minus) {
+        if (self.check(lexer.Token.plus) or self.check(lexer.Token.minus)) {
             const op = UnaryOp.from_token(self.current_token);
             self.skip();
             const right = self.parse_unary();
@@ -299,7 +350,7 @@ pub const Parser = struct {
     /// Parse expression like `2 * 3`
     fn parse_factor(self: *Self) Expr {
         var left = self.parse_unary();
-        while (self.current_token == lexer.Token.star or self.current_token == lexer.Token.div or self.current_token == lexer.Token.pow) {
+        while (self.check(lexer.Token.star) or self.check(lexer.Token.div) or self.check(lexer.Token.pow)) {
             const op = BinaryOp.from_token(self.current_token);
             self.skip();
             const right = self.parse_unary();
@@ -311,7 +362,7 @@ pub const Parser = struct {
     /// Parse expression like `2 + 3`
     fn parse_term(self: *Self) Expr {
         var left = self.parse_factor();
-        while (self.current_token == lexer.Token.plus or self.current_token == lexer.Token.minus) {
+        while (self.check(lexer.Token.plus) or self.check(lexer.Token.minus)) {
             const op = BinaryOp.from_token(self.current_token);
             self.skip();
             const right = self.parse_factor();
