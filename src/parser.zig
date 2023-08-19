@@ -176,12 +176,10 @@ pub const Parser = struct {
     /// Check whether the `token` has the type of the current token and skip it if it's possible.
     /// If it doesn't, it throws an error.
     fn eat(self: *Self, token: lexer.Token) void {
-        self.current_token_index += 1;
-        if (self.current_token_index >= self.tokens.items.len)
-            return;
-
         if (@as(i32, @intFromEnum(self.current_token)) == @as(i32, @intFromEnum(token))) {
-            self.current_token = self.tokens.items[self.current_token_index];
+            self.current_token_index += 1;
+            if (self.current_token_index < self.tokens.items.len)
+                self.current_token = self.tokens.items[self.current_token_index];
         } else {
             std.log.err("invalid token expected \"{}\" but receive \"{}\"", .{ token, self.current_token });
             std.process.exit(1);
@@ -214,6 +212,7 @@ pub const Parser = struct {
             },
             else => blk: {
                 const expr = self.parse_expression();
+                self.eat(.semi_colon);
                 break :blk .{ .expression = expr };
             },
         };
@@ -371,13 +370,10 @@ pub const Parser = struct {
         return left;
     }
 
-    // TODO Parse condition in priority of term (1 + 2 == 2 <=> (1 + 2) == 2)
-
-    /// Parse expression like `a = 0` or `a += b`
-    fn parse_assign(self: *Self) Expr {
+    fn parse_condition(self: *Self) Expr {
         var left = self.parse_term();
         const token_int = @intFromEnum(self.current_token);
-        while (token_int >= @intFromEnum(lexer.Token.eq) and token_int <= @intFromEnum(lexer.Token.conditional_eq)) {
+        while (token_int >= @intFromEnum(lexer.Token.eqs) and token_int <= @intFromEnum(lexer.Token.lt)) {
             const op = BinaryOp.from_token(self.current_token);
             self.skip();
             const right = self.parse_term();
@@ -385,6 +381,97 @@ pub const Parser = struct {
         }
         return left;
     }
+
+    /// Parse expression like `a = 0` or `a += b`
+    fn parse_assign(self: *Self) Expr {
+        var left = self.parse_condition();
+        const token_int = @intFromEnum(self.current_token);
+        while (token_int >= @intFromEnum(lexer.Token.eq) and token_int <= @intFromEnum(lexer.Token.conditional_eq)) {
+            const op = BinaryOp.from_token(self.current_token);
+            self.skip();
+            const right = self.parse_condition();
+            left = .{ .binary_operation = .{ .left = &left, .right = &right, .kind = op } };
+        }
+        return left;
+    }
 };
 
-// TODO Add tests
+fn parse(source: lexer.Source, allocator: std.mem.Allocator) !std.ArrayList(Statement) {
+    var lex = lexer.Lexer.init(source);
+    var tokens = std.ArrayList(lexer.Token).init(allocator);
+    defer tokens.deinit();
+
+    while (lex.has_tokens()) {
+        try tokens.append(try lex.next_token());
+    }
+    try tokens.append(.eof);
+
+    return Parser.parse(allocator, &tokens);
+}
+
+const expectEqualDeep = std.testing.expectEqualDeep;
+test "parser parse variable declaration" {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    const allocator = arena.allocator();
+    defer arena.deinit();
+
+    const input = "let a = 0;";
+    const result = try parse(.{ .buffer = input, .file_name = "test_file" }, allocator);
+    defer result.deinit();
+
+    try expectEqualDeep(.{.{ .variable_declaration = .{ .constant = false, .name = "a", .value = .{ .int_litteral = "0" } } }}, result.items);
+}
+
+test "parser parse constant declaration" {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    const allocator = arena.allocator();
+    defer arena.deinit();
+
+    const input = "const a = 0;";
+    const result = try parse(.{ .buffer = input, .file_name = "test_file" }, allocator);
+    defer result.deinit();
+
+    try expectEqualDeep(.{.{ .variable_declaration = .{ .constant = true, .name = "a", .value = .{ .int_litteral = "0" } } }}, result.items);
+}
+
+test "parser parse expression" {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    const allocator = arena.allocator();
+    defer arena.deinit();
+
+    const input = "1 + 1 * -1;";
+    const result = try parse(.{ .buffer = input, .file_name = "test_file" }, allocator);
+    defer result.deinit();
+
+    try expectEqualDeep(.{.{ .expression = .{ .binary_operation = .{ .kind = .add, .left = &.{ .int_litteral = "1" }, .right = &.{ .binary_operation = .{ .kind = .mult, .left = &.{ .int_litteral = "1" }, .right = .{ .unary_operation = .{ .right = &.{ .int_litteral = "1" }, .kind = .negate } } } } } } }}, result.items);
+}
+
+test "parser parse null" {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    const allocator = arena.allocator();
+    defer arena.deinit();
+
+    const input = "null;";
+    const result = try parse(.{ .buffer = input, .file_name = "test_file" }, allocator);
+    defer result.deinit();
+
+    try expectEqualDeep(.{.{ .expression = .null_litteral }}, result.items);
+}
+
+// FIXME error: expected type 'struct{struct{function_declaration: struct{comptime name: *const [1:0]u8 = "a", args: array_list.ArrayListAligned([]const u8,null), statements: array_list.ArrayListAligned(parser.Statement,null)}}}', found '[]parser.Statement'
+// test "parser parse function declaration" {
+//     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+//     const allocator = arena.allocator();
+//     defer arena.deinit();
+
+//     const input = "func a(){}";
+//     const result = try parse(.{ .buffer = input, .file_name = "test_file" }, allocator);
+//     defer result.deinit();
+//     try expectEqualDeep(.{.{
+//         .function_declaration = .{
+//             .name = "a",
+//             .args = std.ArrayList([]const u8).fromOwnedSlice(allocator, &.{}),
+//             .statements = std.ArrayList(Statement).fromOwnedSlice(allocator, &.{}),
+//         },
+//     }}, result.items);
+// }
