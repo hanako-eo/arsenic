@@ -1,0 +1,11 @@
+const io = #import("io");
+
+func main() {
+    print("Hello World in main");
+}
+
+func print(message string) {
+    io.log("INFO: " + message);
+}
+
+main();

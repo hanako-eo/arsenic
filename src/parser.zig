@@ -248,7 +248,7 @@ pub const Parser = struct {
 
         self.eat(.lbrace);
         var statements = std.ArrayList(Statement).init(self.allocator);
-        while (!self.check(.rparent)) {
+        while (!self.check(.rbrace)) {
             if (try self.parse_statement()) |stmt| {
                 try statements.append(stmt);
             } else break;
@@ -327,9 +327,7 @@ pub const Parser = struct {
                 self.eat(.rparent);
                 break :blk .{ .parent = &expr };
             },
-            else => {
-                unreachable;
-            },
+            else => unreachable,
         };
     }
 

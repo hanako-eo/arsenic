@@ -1,0 +1,22 @@
+const Vector<T> = class {
+    // if we declare const z = 0; it cannot be modified in the @@constructor
+    // but if it's const z; it can be initialize in the @@constructor 
+    let x T;
+    let y T;
+
+    // self cannot be typed because it represent this in vanilla js
+    func [@@constructor](self, x T, y T) {
+        self.x = x;
+        self.y = y;
+    }
+
+    // Self is an auto alias to Vector<T>
+    func [@@op_add](self, other Self) {
+        return new Self(self.x + other.x, self.y + other.y);
+    }
+};
+
+const v1 = new Vector<float>(1, 1);
+const v2 = new Vector<float>(2, 2);
+// it will be transpiled to const v3 = v1[Symbol.op_add](v2)
+const v3 = v1 + v2;

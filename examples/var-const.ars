@@ -1,0 +1,6 @@
+const a int = 1;
+let b = 2;
+b = a * 3;
+
+// error
+a = b * 3;

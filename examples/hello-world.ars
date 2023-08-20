@@ -1,0 +1,5 @@
+// this import works like a feature activation
+const io = #import("io");
+
+// this will be compile to a console.log
+io.log("Hello World");

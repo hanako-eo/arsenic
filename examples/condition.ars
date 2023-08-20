@@ -1,0 +1,15 @@
+const io = #import("io");
+
+let a = 1;
+if (a > 0) {
+    a += 1;
+}
+
+const b = if (a == 2) -1 else a;
+const c = if (a + b == 1) {
+    io.log("1 !");
+    false;
+} else {
+    io.log("not 1 !");
+    true;
+};

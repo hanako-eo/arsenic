@@ -1,0 +1,18 @@
+let a FixedArray<int, 5> = [];
+
+// for (let i = 0; i < 5; i++)
+for (5) |i| {
+    a[i] = (i + 1) ** 2;
+}
+
+let s = 0;
+// for (let el_a of a)
+for (a) |el_a| {
+    s += el_a;
+}
+
+let r = 1;
+let i = 0;
+while (i < 5) : (i += 1) {
+    r *= a[i];
+}
