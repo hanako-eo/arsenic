@@ -7,7 +7,7 @@ It will try also to add new "false" feature to JavaScript like operator overload
 ## Roadmap
 
 ### Core Roadmap
- - [ ] Lexer/Parser (converte file into [AST](https://en.wikipedia.org/wiki/Abstract_syntax_tree))
+ - [x] Lexer/Parser (converte file into [AST](https://en.wikipedia.org/wiki/Abstract_syntax_tree))
  - [ ] Scanner (check and optimise the AST)
  - [ ] Type Checking
  - [ ] Compile to JS

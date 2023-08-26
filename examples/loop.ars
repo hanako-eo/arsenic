@@ -1,4 +1,4 @@
-let a FixedArray<int, 5> = [];
+let a: FixedArray<int, 5> = [];
 
 // for (let i = 0; i < 5; i++)
 for (5) |i| {

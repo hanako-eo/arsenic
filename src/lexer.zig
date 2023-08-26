@@ -70,6 +70,8 @@ pub const Token = union(enum) {
     or_op,
     nullish,
 
+    dotdotdot,
+    question,
     dot,
     comma,
     colon,
@@ -143,6 +145,8 @@ pub const Token = union(enum) {
         .{ "||", .or_op },
         .{ "??", .nullish },
 
+        .{ "...", .dotdotdot },
+        .{ "?", .question },
         .{ ".", .dot },
         .{ ",", .comma },
         .{ ":", .colon },
@@ -359,7 +363,7 @@ pub const Lexer = struct {
 
 const expectEqualDeep = std.testing.expectEqualDeep;
 test "lexer parsing operators" {
-    const input = "= += -= *= /= %= **= <<= >>= >>>= &= |= ^= ~= &&= ||= ??= ?= == != >= <= > < + - * / % ** << >> >>> & | ^ ~ && || ??";
+    const input = "= += -= *= /= %= **= <<= >>= >>>= &= |= ^= ~= &&= ||= ??= ?= == != >= <= > < + - * / % ** << >> >>> & | ^ ~ && || ?? ...";
     var lex = Lexer.init(Source{ .buffer = input, .file_name = "test_file" });
 
     var tokens = [_]Token{
@@ -405,6 +409,7 @@ test "lexer parsing operators" {
         .and_op,
         .or_op,
         .nullish,
+        .dotdotdot,
         .eof,
     };
 

@@ -4,7 +4,7 @@ func main() {
     print("Hello World in main");
 }
 
-func print(message string) {
+func print(message: string) {
     io.log("INFO: " + message);
 }
 

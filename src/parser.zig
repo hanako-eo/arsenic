@@ -2,16 +2,23 @@ const std = @import("std");
 const lexer = @import("./lexer.zig");
 
 const Statement = union(enum) {
+    const Arg = struct {
+        name: Expr,
+        type: ?Expr
+    };
+
     exported: *const Statement,
     expression: Expr,
     variable_declaration: struct {
         constant: bool,
-        name: []const u8,
+        name: Expr,
+        type: ?Expr,
         value: Expr,
     },
     function_declaration: struct {
         name: []const u8,
-        args: std.ArrayList([]const u8),
+        args: std.ArrayList(Arg),
+        type: ?Expr,
         statements: std.ArrayList(Statement),
     },
 };
@@ -19,6 +26,8 @@ const Statement = union(enum) {
 const Expr = union(enum) {
     block: std.ArrayList(Statement),
     parent: *const Expr,
+
+    optional: *const Expr,
 
     unary_operation: struct { right: *const Expr, kind: UnaryOp },
     binary_operation: struct { left: *const Expr, right: *const Expr, kind: BinaryOp },
@@ -218,7 +227,7 @@ pub const Parser = struct {
         };
     }
 
-    /// Parse statement as follows `func fonction_name(args) {code;}`
+    /// Parse statement as follows `func fonction_name(args: type): type {code;}`
     fn parse_function(self: *Self) anyerror!Statement {
         self.skip();
         const name = switch (self.current_token) {
@@ -230,21 +239,26 @@ pub const Parser = struct {
         };
         self.skip();
         self.eat(.lparent);
-        var args = std.ArrayList([]const u8).init(self.allocator);
+        var args = std.ArrayList(Statement.Arg).init(self.allocator);
         while (!self.check(.rparent)) {
-            const arg = switch (self.current_token) {
-                .ident => |arg_name| arg_name,
-                else => {
-                    std.log.err("invalid token expected an identifier but receive \"{}\"", .{self.current_token});
-                    std.process.exit(1);
-                },
-            };
-            try args.append(arg);
-            self.skip();
+            const arg_name = self.parse_primitive();
+            var type_expr: ?Expr = null;
+            if (self.check(.colon)) {
+                self.eat(.colon);
+                type_expr = self.parse_expression();
+            }
+            try args.append(.{ .name = arg_name, .type = type_expr });
+
             if (!self.check(.comma))
                 break self.eat(.comma);
         }
         self.eat(.rparent);
+
+        var type_expr: ?Expr = null;
+        if (self.check(.colon)) {
+            self.eat(.colon);
+            type_expr = self.parse_expression();
+        }
 
         self.eat(.lbrace);
         var statements = std.ArrayList(Statement).init(self.allocator);
@@ -257,28 +271,27 @@ pub const Parser = struct {
 
         return .{ .function_declaration = .{
             .name = name,
+            .type = type_expr,
             .args = args,
             .statements = statements,
         } };
     }
 
-    /// Parse statement as follows `const|let var_name = value;`
+    /// Parse statement as follows `const|let var_name: type = value;`
     fn parse_var_declaration(self: *Self) Statement {
         const is_constant = self.check(.kw_const);
         self.skip();
-        const name = switch (self.current_token) {
-            .ident => |name| name,
-            else => {
-                std.log.err("invalid token expected an identifier but receive \"{}\"", .{self.current_token});
-                std.process.exit(1);
-            },
-        };
-        self.skip();
+        const name = self.parse_primitive();
+        var type_expr: ?Expr = null;
+        if (self.check(.colon)) {
+            self.eat(.colon);
+            type_expr = self.parse_expression();
+        }
         self.eat(.eq);
         const value = self.parse_expression();
         self.eat(.semi_colon);
 
-        return .{ .variable_declaration = .{ .name = name, .value = value, .constant = is_constant } };
+        return .{ .variable_declaration = .{ .name = name, .type = type_expr, .value = value, .constant = is_constant } };
     }
 
     fn parse_expression(self: *Self) Expr {
@@ -326,6 +339,10 @@ pub const Parser = struct {
                 const expr = self.parse_expression();
                 self.eat(.rparent);
                 break :blk .{ .parent = &expr };
+            },
+            .question => blk: {
+                self.skip();
+                break :blk self.parse_expression();
             },
             else => unreachable,
         };
@@ -417,7 +434,7 @@ test "parser parse variable declaration" {
     const result = try parse(.{ .buffer = input, .file_name = "test_file" }, allocator);
     defer result.deinit();
 
-    try expectEqualDeep(.{.{ .variable_declaration = .{ .constant = false, .name = "a", .value = .{ .int_litteral = "0" } } }}, result.items);
+    try expectEqualDeep(.{.{ .variable_declaration = .{ .constant = false, .name = .{ .ident = "a" }, .type = null, .value = .{ .int_litteral = "0" } } }}, result.items);
 }
 
 test "parser parse constant declaration" {
@@ -429,7 +446,7 @@ test "parser parse constant declaration" {
     const result = try parse(.{ .buffer = input, .file_name = "test_file" }, allocator);
     defer result.deinit();
 
-    try expectEqualDeep(.{.{ .variable_declaration = .{ .constant = true, .name = "a", .value = .{ .int_litteral = "0" } } }}, result.items);
+    try expectEqualDeep(.{.{ .variable_declaration = .{ .constant = true, .name = .{ .ident = "a" }, .type = null, .value = .{ .int_litteral = "0" } } }}, result.items);
 }
 
 test "parser parse expression" {
