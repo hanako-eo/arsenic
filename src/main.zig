@@ -26,12 +26,13 @@ pub fn main() !void {
 
     var lex = lexer.Lexer.init(.{ .file_name = args[1], .buffer = buffer });
     var tokens = std.ArrayList(lexer.Token).init(allocator);
-    defer tokens.deinit();
 
     while (lex.has_tokens()) {
         try tokens.append(try lex.next_token());
     }
     try tokens.append(.eof);
 
-    std.debug.print("\n\n{}\n\n", .{try parser.Parser.parse(allocator, &tokens)});
+    var ast = try parser.Parser.parse(allocator, &tokens);
+    _ = ast;
+    tokens.deinit();
 }

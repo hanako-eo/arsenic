@@ -1,158 +1,6 @@
 const std = @import("std");
+const ast = @import("./ast.zig");
 const lexer = @import("./lexer.zig");
-
-const Statement = union(enum) {
-    const Arg = struct {
-        name: Expr,
-        type: ?Expr
-    };
-
-    exported: *const Statement,
-    expression: Expr,
-    variable_declaration: struct {
-        constant: bool,
-        name: Expr,
-        type: ?Expr,
-        value: Expr,
-    },
-    function_declaration: struct {
-        name: []const u8,
-        args: std.ArrayList(Arg),
-        type: ?Expr,
-        statements: std.ArrayList(Statement),
-    },
-};
-
-const Expr = union(enum) {
-    block: std.ArrayList(Statement),
-    parent: *const Expr,
-
-    optional: *const Expr,
-
-    unary_operation: struct { right: *const Expr, kind: UnaryOp },
-    binary_operation: struct { left: *const Expr, right: *const Expr, kind: BinaryOp },
-
-    ident: []const u8,
-    char_litteral: []const u8,
-    string_litteral: []const u8,
-    symbol_litteral: struct { name: []const u8, strictly_unique: bool },
-    float_litteral: []const u8,
-    int_litteral: []const u8,
-    bool_litteral: bool,
-    null_litteral,
-};
-
-const UnaryOp = enum {
-    none,
-
-    plus,
-    negate,
-
-    const Self = @This();
-    fn from_token(token: lexer.Token) Self {
-        return switch (token) {
-            .plus => .plus,
-            .minus => .negate,
-            else => .none,
-        };
-    }
-};
-
-const BinaryOp = enum {
-    none,
-
-    assign,
-    plus_assign,
-    sub_assign,
-    mult_assign,
-    div_assign,
-    mod_assign,
-    pow_assign,
-    lshift_assign,
-    rshift_assign,
-    urshift_assign,
-    bit_and_assign,
-    bit_or_assign,
-    bit_xor_assign,
-    bit_not_assign,
-    and_assign,
-    or_assign,
-    nullish_assign,
-    conditional_assign,
-
-    eqs,
-    neq,
-    geq,
-    leq,
-    gt,
-    lt,
-
-    add,
-    sub,
-    mult,
-    div,
-    mod,
-    pow,
-    lshift,
-    rshift,
-    urshift,
-    bit_and,
-    bit_or,
-    bit_xor,
-    bit_not,
-    and_op,
-    or_op,
-    nullish,
-
-    const Self = @This();
-    fn from_token(token: lexer.Token) Self {
-        return switch (token) {
-            .eq => .assign,
-            .plus_eq => .plus_assign,
-            .minus_eq => .sub_assign,
-            .star_eq => .mult_assign,
-            .div_eq => .div_assign,
-            .mod_eq => .mod_assign,
-            .pow_eq => .pow_assign,
-            .lshift_eq => .lshift_assign,
-            .rshift_eq => .rshift_assign,
-            .urshift_eq => .urshift_assign,
-            .bit_and_eq => .bit_and_assign,
-            .bit_or_eq => .bit_or_assign,
-            .bit_xor_eq => .bit_xor_assign,
-            .bit_not_eq => .bit_not_assign,
-            .and_eq => .and_assign,
-            .or_eq => .or_assign,
-            .nullish_eq => .nullish_assign,
-            .conditional_eq => .conditional_assign,
-
-            .eqs => .eqs,
-            .neq => .neq,
-            .geq => .geq,
-            .leq => .leq,
-            .gt => .gt,
-            .lt => .lt,
-
-            .plus => .add,
-            .minus => .sub,
-            .star => .mult,
-            .div => .div,
-            .mod => .mod,
-            .pow => .pow,
-            .lshift => .lshift,
-            .rshift => .rshift,
-            .urshift => .urshift,
-            .bit_and => .bit_and,
-            .bit_or => .bit_or,
-            .bit_xor => .bit_xor,
-            .bit_not => .bit_not,
-            .and_op => .and_op,
-            .or_op => .or_op,
-            .nullish => .nullish,
-            else => .none,
-        };
-    }
-};
 
 pub const Parser = struct {
     allocator: std.mem.Allocator,
@@ -162,7 +10,7 @@ pub const Parser = struct {
     current_token_index: usize = 0,
 
     const Self = @This();
-    pub fn parse(allocator: std.mem.Allocator, tokens: *const std.ArrayList(lexer.Token)) !std.ArrayList(Statement) {
+    pub fn parse(allocator: std.mem.Allocator, tokens: *const std.ArrayList(lexer.Token)) !std.ArrayList(ast.Statement) {
         var parser = Parser{ .allocator = allocator, .tokens = tokens, .current_token = tokens.items[0] };
 
         return parser.parse_statements();
@@ -195,8 +43,8 @@ pub const Parser = struct {
         }
     }
 
-    fn parse_statements(self: *Self) !std.ArrayList(Statement) {
-        var statements = std.ArrayList(Statement).init(self.allocator);
+    fn parse_statements(self: *Self) !std.ArrayList(ast.Statement) {
+        var statements = std.ArrayList(ast.Statement).init(self.allocator);
         while (!self.check(.eof)) {
             if (try self.parse_statement()) |stmt|
                 try statements.append(stmt);
@@ -205,7 +53,7 @@ pub const Parser = struct {
     }
 
     /// This function dispatches statement parsing
-    fn parse_statement(self: *Self) !?Statement {
+    fn parse_statement(self: *Self) !?ast.Statement {
         return switch (self.current_token) {
             .kw_const, .kw_let => self.parse_var_declaration(),
             .kw_function => try self.parse_function(),
@@ -228,7 +76,7 @@ pub const Parser = struct {
     }
 
     /// Parse statement as follows `func fonction_name(args: type): type {code;}`
-    fn parse_function(self: *Self) anyerror!Statement {
+    fn parse_function(self: *Self) anyerror!ast.Statement {
         self.skip();
         const name = switch (self.current_token) {
             .ident => |name| name,
@@ -239,10 +87,10 @@ pub const Parser = struct {
         };
         self.skip();
         self.eat(.lparent);
-        var args = std.ArrayList(Statement.Arg).init(self.allocator);
+        var args = std.ArrayList(ast.Statement.Arg).init(self.allocator);
         while (!self.check(.rparent)) {
             const arg_name = self.parse_primitive();
-            var type_expr: ?Expr = null;
+            var type_expr: ?ast.Expr = null;
             if (self.check(.colon)) {
                 self.eat(.colon);
                 type_expr = self.parse_expression();
@@ -254,14 +102,14 @@ pub const Parser = struct {
         }
         self.eat(.rparent);
 
-        var type_expr: ?Expr = null;
+        var type_expr: ?ast.Expr = null;
         if (self.check(.colon)) {
             self.eat(.colon);
             type_expr = self.parse_expression();
         }
 
         self.eat(.lbrace);
-        var statements = std.ArrayList(Statement).init(self.allocator);
+        var statements = std.ArrayList(ast.Statement).init(self.allocator);
         while (!self.check(.rbrace)) {
             if (try self.parse_statement()) |stmt| {
                 try statements.append(stmt);
@@ -278,11 +126,11 @@ pub const Parser = struct {
     }
 
     /// Parse statement as follows `const|let var_name: type = value;`
-    fn parse_var_declaration(self: *Self) Statement {
+    fn parse_var_declaration(self: *Self) ast.Statement {
         const is_constant = self.check(.kw_const);
         self.skip();
         const name = self.parse_primitive();
-        var type_expr: ?Expr = null;
+        var type_expr: ?ast.Expr = null;
         if (self.check(.colon)) {
             self.eat(.colon);
             type_expr = self.parse_expression();
@@ -294,12 +142,12 @@ pub const Parser = struct {
         return .{ .variable_declaration = .{ .name = name, .type = type_expr, .value = value, .constant = is_constant } };
     }
 
-    fn parse_expression(self: *Self) Expr {
+    fn parse_expression(self: *Self) ast.Expr {
         return self.parse_assign();
     }
 
     /// Parse primitve value like number, string or more
-    fn parse_primitive(self: *Self) Expr {
+    fn parse_primitive(self: *Self) ast.Expr {
         return switch (self.current_token) {
             .ident => |ident| blk: {
                 self.skip();
@@ -349,9 +197,9 @@ pub const Parser = struct {
     }
 
     /// Parse expression like `+1` or `-1`
-    fn parse_unary(self: *Self) Expr {
+    fn parse_unary(self: *Self) ast.Expr {
         if (self.check(lexer.Token.plus) or self.check(lexer.Token.minus)) {
-            const op = UnaryOp.from_token(self.current_token);
+            const op = ast.UnaryOp.from_token(self.current_token);
             self.skip();
             const right = self.parse_unary();
 
@@ -362,10 +210,10 @@ pub const Parser = struct {
     }
 
     /// Parse expression like `2 * 3`
-    fn parse_factor(self: *Self) Expr {
+    fn parse_factor(self: *Self) ast.Expr {
         var left = self.parse_unary();
         while (self.check(lexer.Token.star) or self.check(lexer.Token.div) or self.check(lexer.Token.pow)) {
-            const op = BinaryOp.from_token(self.current_token);
+            const op = ast.BinaryOp.from_token(self.current_token);
             self.skip();
             const right = self.parse_unary();
             left = .{ .binary_operation = .{ .left = &left, .right = &right, .kind = op } };
@@ -374,10 +222,10 @@ pub const Parser = struct {
     }
 
     /// Parse expression like `2 + 3`
-    fn parse_term(self: *Self) Expr {
+    fn parse_term(self: *Self) ast.Expr {
         var left = self.parse_factor();
         while (self.check(lexer.Token.plus) or self.check(lexer.Token.minus)) {
-            const op = BinaryOp.from_token(self.current_token);
+            const op = ast.BinaryOp.from_token(self.current_token);
             self.skip();
             const right = self.parse_factor();
             left = .{ .binary_operation = .{ .left = &left, .right = &right, .kind = op } };
@@ -385,11 +233,11 @@ pub const Parser = struct {
         return left;
     }
 
-    fn parse_condition(self: *Self) Expr {
+    fn parse_condition(self: *Self) ast.Expr {
         var left = self.parse_term();
         const token_int = @intFromEnum(self.current_token);
         while (token_int >= @intFromEnum(lexer.Token.eqs) and token_int <= @intFromEnum(lexer.Token.lt)) {
-            const op = BinaryOp.from_token(self.current_token);
+            const op = ast.BinaryOp.from_token(self.current_token);
             self.skip();
             const right = self.parse_term();
             left = .{ .binary_operation = .{ .left = &left, .right = &right, .kind = op } };
@@ -398,11 +246,11 @@ pub const Parser = struct {
     }
 
     /// Parse expression like `a = 0` or `a += b`
-    fn parse_assign(self: *Self) Expr {
+    fn parse_assign(self: *Self) ast.Expr {
         var left = self.parse_condition();
         const token_int = @intFromEnum(self.current_token);
         while (token_int >= @intFromEnum(lexer.Token.eq) and token_int <= @intFromEnum(lexer.Token.conditional_eq)) {
-            const op = BinaryOp.from_token(self.current_token);
+            const op = ast.BinaryOp.from_token(self.current_token);
             self.skip();
             const right = self.parse_condition();
             left = .{ .binary_operation = .{ .left = &left, .right = &right, .kind = op } };
@@ -411,7 +259,7 @@ pub const Parser = struct {
     }
 };
 
-fn parse(source: lexer.Source, allocator: std.mem.Allocator) !std.ArrayList(Statement) {
+fn parse(source: lexer.Source, allocator: std.mem.Allocator) !std.ArrayList(ast.Statement) {
     var lex = lexer.Lexer.init(source);
     var tokens = std.ArrayList(lexer.Token).init(allocator);
     defer tokens.deinit();
@@ -473,7 +321,7 @@ test "parser parse null" {
     try expectEqualDeep(.{.{ .expression = .null_litteral }}, result.items);
 }
 
-// FIXME error: expected type 'struct{struct{function_declaration: struct{comptime name: *const [1:0]u8 = "a", args: array_list.ArrayListAligned([]const u8,null), statements: array_list.ArrayListAligned(parser.Statement,null)}}}', found '[]parser.Statement'
+// FIXME error: expected type 'struct{struct{function_declaration: struct{comptime name: *const [1:0]u8 = "a", args: array_list.ArrayListAligned([]const u8,null), statements: array_list.ArrayListAligned(parser.ast.Statement,null)}}}', found '[]parser.ast.Statement'
 // test "parser parse function declaration" {
 //     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
 //     const allocator = arena.allocator();
@@ -486,7 +334,7 @@ test "parser parse null" {
 //         .function_declaration = .{
 //             .name = "a",
 //             .args = std.ArrayList([]const u8).fromOwnedSlice(allocator, &.{}),
-//             .statements = std.ArrayList(Statement).fromOwnedSlice(allocator, &.{}),
+//             .statements = std.ArrayList(ast.Statement).fromOwnedSlice(allocator, &.{}),
 //         },
 //     }}, result.items);
 // }
