@@ -1,6 +1,10 @@
 const std = @import("std");
-const lexer = @import("./lexer.zig");
-const parser = @import("./parser.zig");
+const lexer = @import("./frontend/lexer.zig");
+const parser = @import("./frontend/parser.zig");
+
+const ast_t = @import("./middleend/ast.zig");
+
+const context = @import("./context.zig");
 const File = @import("./file.zig").File;
 
 const log = std.log;
@@ -23,6 +27,9 @@ pub fn main() !void {
     defer file.close();
 
     const buffer = try file.read();
+
+    var global_context = context.Context.init(allocator, context.ContextKind.global, null);
+    defer global_context.deinit();
 
     var lex = lexer.Lexer.init(.{ .file_name = args[1], .buffer = buffer });
     var tokens = std.ArrayList(lexer.Token).init(allocator);
