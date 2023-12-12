@@ -1,4 +1,7 @@
 const std = @import("std");
+const InvariantBin = @import("../utils/bin.zig").InvariantBin;
+
+const Token = @import("./token.zig").Token;
 const lexer = @import("./lexer.zig");
 
 pub const Statement = union(enum) {
@@ -14,30 +17,32 @@ pub const Statement = union(enum) {
         type: ?Expr,
         statements: std.ArrayList(Statement),
     };
-    const Arg = struct {
+    pub const Arg = struct {
         name: Expr,
         type: ?Expr
     };
 
-    exported: *const Statement,
+    exported: InvariantBin(Statement),
     expression: Expr,
     variable_declaration: VarDeclaration,
     function_declaration: FnDeclaration,
 };
 
 pub const Expr = union(enum) {
+    pub const Symbol = struct { name: []const u8, strictly_unique: bool };
+
     block: std.ArrayList(Statement),
-    parent: *const Expr,
+    parent: InvariantBin(Expr),
 
-    optional: *const Expr,
+    optional: InvariantBin(Expr),
 
-    unary_operation: struct { right: *const Expr, kind: UnaryOp },
-    binary_operation: struct { left: *const Expr, right: *const Expr, kind: BinaryOp },
+    unary_operation: struct { right: InvariantBin(Expr), kind: UnaryOp },
+    binary_operation: struct { left: InvariantBin(Expr), right: InvariantBin(Expr), kind: BinaryOp },
 
     ident: []const u8,
     char_litteral: []const u8,
     string_litteral: []const u8,
-    symbol_litteral: struct { name: []const u8, strictly_unique: bool },
+    symbol_litteral: Symbol,
     float_litteral: []const u8,
     int_litteral: []const u8,
     bool_litteral: bool,
@@ -51,7 +56,7 @@ pub const UnaryOp = enum {
     negate,
 
     const Self = @This();
-    fn from_token(token: lexer.Token) Self {
+    pub fn from_token(token: Token) Self {
         return switch (token) {
             .plus => .plus,
             .minus => .negate,
@@ -107,7 +112,7 @@ pub const BinaryOp = enum {
     nullish,
 
     const Self = @This();
-    fn from_token(token: lexer.Token) Self {
+    pub fn from_token(token: Token) Self {
         return switch (token) {
             .eq => .assign,
             .plus_eq => .plus_assign,

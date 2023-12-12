@@ -3,7 +3,7 @@ const mem = std.mem;
 
 const Token = @import("./token.zig").Token;
 
-pub const LexerError = error{ InvalidNumberFormat, IllegalChar, IllegalUtf8Char, MissingChar };
+const Error = @import("../errors.zig").Error;
 
 pub const Source = struct {
     buffer: []const u8,
@@ -26,10 +26,10 @@ pub const Lexer = struct {
         return self.ch != 0;
     }
 
-    pub fn next_token(self: *Self) LexerError!Token {
+    pub fn next_token(self: *Self) Error!Token {
         self.skip_whitespace();
 
-        const tok: LexerError!Token = switch (self.ch) {
+        const tok: Error!Token = switch (self.ch) {
             0 => .eof,
             '@' => {
                 const symbol = self.read_symbol();
@@ -63,7 +63,7 @@ pub const Lexer = struct {
                         return Token.operators.kvs[i - 1].value;
                     }
                 }
-                break :blk LexerError.IllegalChar;
+                break :blk Error.IllegalChar;
             },
         };
 
@@ -124,7 +124,7 @@ pub const Lexer = struct {
         return self.source.buffer[position + 1 .. self.position - 1];
     }
 
-    fn read_char(self: *Self) LexerError![]const u8 {
+    fn read_char(self: *Self) Error![]const u8 {
         self.forward();
         // utf-8 char
         const bytes_len: u3 = blk: {
@@ -137,13 +137,13 @@ pub const Lexer = struct {
             if (self.ch & 0b11100000 == 0b11000000)
                 break :blk 2;
             // invalid utf-8 char
-            return LexerError.IllegalUtf8Char;
+            return Error.IllegalUtf8Char;
         };
 
         const char = self.source.buffer[self.position .. self.position + bytes_len];
         self.forward_n(bytes_len);
 
-        if (self.ch != '\'') return LexerError.MissingChar;
+        if (self.ch != '\'') return Error.MissingChar;
         self.forward();
 
         return char;
@@ -159,7 +159,7 @@ pub const Lexer = struct {
         return self.source.buffer[position..self.position];
     }
 
-    fn read_number(self: *Self) LexerError![]const u8 {
+    fn read_number(self: *Self) Error![]const u8 {
         const position = self.position;
 
         if (self.ch == '0') {
@@ -184,7 +184,7 @@ pub const Lexer = struct {
                     }
                 },
                 else => if (std.ascii.isAlphabetic(char))
-                    return LexerError.InvalidNumberFormat,
+                    return Error.InvalidNumberFormat,
             }
         }
 

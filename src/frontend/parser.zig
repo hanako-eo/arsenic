@@ -1,23 +1,28 @@
 const std = @import("std");
+const InvariantBin = @import("../utils/bin.zig").InvariantBin;
+
 const ast = @import("./ast.zig");
+const Token = @import("./token.zig").Token;
 const lexer = @import("./lexer.zig");
+
+const Error = @import("../errors.zig").Error;
 
 pub const Parser = struct {
     allocator: std.mem.Allocator,
-    tokens: *const std.ArrayList(lexer.Token),
+    tokens: *const std.ArrayList(Token),
 
-    current_token: lexer.Token,
+    current_token: Token,
     current_token_index: usize = 0,
 
     const Self = @This();
-    pub fn parse(allocator: std.mem.Allocator, tokens: *const std.ArrayList(lexer.Token)) !std.ArrayList(ast.Statement) {
+    pub fn parse(allocator: std.mem.Allocator, tokens: *const std.ArrayList(Token)) Error!std.ArrayList(ast.Statement) {
         var parser = Parser{ .allocator = allocator, .tokens = tokens, .current_token = tokens.items[0] };
 
         return parser.parse_statements();
     }
 
     /// Test if the current token if it's possible
-    inline fn check(self: *Self, token: lexer.Token) bool {
+    inline fn check(self: *Self, token: Token) bool {
         return @intFromEnum(self.current_token) == @intFromEnum(token);
     }
 
@@ -32,7 +37,7 @@ pub const Parser = struct {
 
     /// Check whether the `token` has the type of the current token and skip it if it's possible.
     /// If it doesn't, it throws an error.
-    fn eat(self: *Self, token: lexer.Token) void {
+    fn eat(self: *Self, token: Token) void {
         if (@as(i32, @intFromEnum(self.current_token)) == @as(i32, @intFromEnum(token))) {
             self.current_token_index += 1;
             if (self.current_token_index < self.tokens.items.len)
@@ -43,32 +48,34 @@ pub const Parser = struct {
         }
     }
 
-    fn parse_statements(self: *Self) !std.ArrayList(ast.Statement) {
+    fn parse_statements(self: *Self) Error!std.ArrayList(ast.Statement) {
         var statements = std.ArrayList(ast.Statement).init(self.allocator);
         while (!self.check(.eof)) {
             if (try self.parse_statement()) |stmt|
-                try statements.append(stmt);
+                statements.append(stmt) catch return Error.AllocationOutOfMemory;
         }
         return statements;
     }
 
     /// This function dispatches statement parsing
-    fn parse_statement(self: *Self) !?ast.Statement {
+    fn parse_statement(self: *Self) Error!?ast.Statement {
         return switch (self.current_token) {
-            .kw_const, .kw_let => self.parse_var_declaration(),
+            .kw_const, .kw_let => try self.parse_var_declaration(),
             .kw_function => try self.parse_function(),
             .kw_export => blk: {
                 self.eat(.kw_export);
                 if (try self.parse_statement()) |stmt| {
-                    break :blk .{ .exported = &stmt };
-                } else break :blk error.InvalidExport;
+                    break :blk .{
+                        .exported = try InvariantBin(ast.Statement).init(self.allocator, stmt)
+                    };
+                } else break :blk Error.InvalidExport;
             },
             .semi_colon => blk: {
                 self.eat(.semi_colon);
                 break :blk null;
             },
             else => blk: {
-                const expr = self.parse_expression();
+                const expr = try self.parse_expression();
                 self.eat(.semi_colon);
                 break :blk .{ .expression = expr };
             },
@@ -76,7 +83,7 @@ pub const Parser = struct {
     }
 
     /// Parse statement as follows `func fonction_name(args: type): type {code;}`
-    fn parse_function(self: *Self) anyerror!ast.Statement {
+    fn parse_function(self: *Self) Error!ast.Statement {
         self.skip();
         const name = switch (self.current_token) {
             .ident => |name| name,
@@ -89,13 +96,13 @@ pub const Parser = struct {
         self.eat(.lparent);
         var args = std.ArrayList(ast.Statement.Arg).init(self.allocator);
         while (!self.check(.rparent)) {
-            const arg_name = self.parse_primitive();
+            const arg_name = try self.parse_primitive();
             var type_expr: ?ast.Expr = null;
             if (self.check(.colon)) {
                 self.eat(.colon);
-                type_expr = self.parse_expression();
+                type_expr = try self.parse_expression();
             }
-            try args.append(.{ .name = arg_name, .type = type_expr });
+            args.append(.{ .name = arg_name, .type = type_expr }) catch return Error.AllocationOutOfMemory;
 
             if (!self.check(.comma))
                 break self.eat(.comma);
@@ -105,14 +112,14 @@ pub const Parser = struct {
         var type_expr: ?ast.Expr = null;
         if (self.check(.colon)) {
             self.eat(.colon);
-            type_expr = self.parse_expression();
+            type_expr = try self.parse_expression();
         }
 
         self.eat(.lbrace);
         var statements = std.ArrayList(ast.Statement).init(self.allocator);
         while (!self.check(.rbrace)) {
             if (try self.parse_statement()) |stmt| {
-                try statements.append(stmt);
+                statements.append(stmt) catch return Error.AllocationOutOfMemory;
             } else break;
         }
         self.eat(.rbrace);
@@ -126,28 +133,28 @@ pub const Parser = struct {
     }
 
     /// Parse statement as follows `const|let var_name: type = value;`
-    fn parse_var_declaration(self: *Self) ast.Statement {
+    fn parse_var_declaration(self: *Self) Error!ast.Statement {
         const is_constant = self.check(.kw_const);
         self.skip();
-        const name = self.parse_primitive();
+        const name = try self.parse_primitive();
         var type_expr: ?ast.Expr = null;
         if (self.check(.colon)) {
             self.eat(.colon);
-            type_expr = self.parse_expression();
+            type_expr = try self.parse_expression();
         }
         self.eat(.eq);
-        const value = self.parse_expression();
+        const value = try self.parse_expression();
         self.eat(.semi_colon);
 
         return .{ .variable_declaration = .{ .name = name, .type = type_expr, .value = value, .constant = is_constant } };
     }
 
-    fn parse_expression(self: *Self) ast.Expr {
+    fn parse_expression(self: *Self) Error!ast.Expr {
         return self.parse_assign();
     }
 
     /// Parse primitve value like number, string or more
-    fn parse_primitive(self: *Self) ast.Expr {
+    fn parse_primitive(self: *Self) Error!ast.Expr {
         return switch (self.current_token) {
             .ident => |ident| blk: {
                 self.skip();
@@ -160,7 +167,7 @@ pub const Parser = struct {
             .symbol => |symbol| blk: {
                 self.skip();
                 const is_unique = std.mem.startsWith(u8, symbol, "@@");
-                break :blk .{ .symbol_litteral = .{ .name = symbol[(if (is_unique) 2 else 1)..], .strictly_unique = is_unique } };
+                break :blk .{ .symbol_litteral = .{ .name = symbol, .strictly_unique = is_unique } };
             },
             .char => |char| blk: {
                 self.skip();
@@ -184,9 +191,11 @@ pub const Parser = struct {
             },
             .lparent => blk: {
                 self.skip();
-                const expr = self.parse_expression();
+                const expr = try self.parse_expression();
                 self.eat(.rparent);
-                break :blk .{ .parent = &expr };
+                break :blk .{
+                    .parent = try InvariantBin(ast.Expr).init(self.allocator, expr)
+                };
             },
             .question => blk: {
                 self.skip();
@@ -197,63 +206,87 @@ pub const Parser = struct {
     }
 
     /// Parse expression like `+1` or `-1`
-    fn parse_unary(self: *Self) ast.Expr {
-        if (self.check(lexer.Token.plus) or self.check(lexer.Token.minus)) {
+    fn parse_unary(self: *Self) Error!ast.Expr {
+        if (self.check(Token.plus) or self.check(Token.minus)) {
             const op = ast.UnaryOp.from_token(self.current_token);
             self.skip();
-            const right = self.parse_unary();
+            const right = try self.parse_unary();
 
-            return .{ .unary_operation = .{ .right = &right, .kind = op } };
+            return .{ .unary_operation = .{ .right = try InvariantBin(ast.Expr).init(self.allocator, right), .kind = op } };
         }
 
         return self.parse_primitive();
     }
 
     /// Parse expression like `2 * 3`
-    fn parse_factor(self: *Self) ast.Expr {
-        var left = self.parse_unary();
-        while (self.check(lexer.Token.star) or self.check(lexer.Token.div) or self.check(lexer.Token.pow)) {
+    fn parse_factor(self: *Self) Error!ast.Expr {
+        var left = try self.parse_unary();
+        while (self.check(Token.star) or self.check(Token.div) or self.check(Token.pow)) {
             const op = ast.BinaryOp.from_token(self.current_token);
             self.skip();
-            const right = self.parse_unary();
-            left = .{ .binary_operation = .{ .left = &left, .right = &right, .kind = op } };
+            const right = try self.parse_unary();
+            left = .{
+                .binary_operation = .{
+                    .left = try InvariantBin(ast.Expr).init(self.allocator, left),
+                    .right = try InvariantBin(ast.Expr).init(self.allocator, right),
+                    .kind = op
+                }
+            };
         }
         return left;
     }
 
     /// Parse expression like `2 + 3`
-    fn parse_term(self: *Self) ast.Expr {
-        var left = self.parse_factor();
-        while (self.check(lexer.Token.plus) or self.check(lexer.Token.minus)) {
+    fn parse_term(self: *Self) Error!ast.Expr {
+        var left = try self.parse_factor();
+        while (self.check(Token.plus) or self.check(Token.minus)) {
             const op = ast.BinaryOp.from_token(self.current_token);
             self.skip();
-            const right = self.parse_factor();
-            left = .{ .binary_operation = .{ .left = &left, .right = &right, .kind = op } };
+            const right = try self.parse_factor();
+            left = .{
+                .binary_operation = .{
+                    .left = try InvariantBin(ast.Expr).init(self.allocator, left),
+                    .right = try InvariantBin(ast.Expr).init(self.allocator, right),
+                    .kind = op
+                }
+            };
         }
         return left;
     }
 
-    fn parse_condition(self: *Self) ast.Expr {
-        var left = self.parse_term();
+    fn parse_condition(self: *Self) Error!ast.Expr {
+        var left = try self.parse_term();
         const token_int = @intFromEnum(self.current_token);
-        while (token_int >= @intFromEnum(lexer.Token.eqs) and token_int <= @intFromEnum(lexer.Token.lt)) {
+        while (token_int >= @intFromEnum(Token.eqs) and token_int <= @intFromEnum(Token.lt)) {
             const op = ast.BinaryOp.from_token(self.current_token);
             self.skip();
-            const right = self.parse_term();
-            left = .{ .binary_operation = .{ .left = &left, .right = &right, .kind = op } };
+            const right = try self.parse_term();
+            left = .{
+                .binary_operation = .{
+                    .left = try InvariantBin(ast.Expr).init(self.allocator, left),
+                    .right = try InvariantBin(ast.Expr).init(self.allocator, right),
+                    .kind = op
+                }
+            };
         }
         return left;
     }
 
     /// Parse expression like `a = 0` or `a += b`
-    fn parse_assign(self: *Self) ast.Expr {
-        var left = self.parse_condition();
+    fn parse_assign(self: *Self) Error!ast.Expr {
+        var left = try self.parse_condition();
         const token_int = @intFromEnum(self.current_token);
-        while (token_int >= @intFromEnum(lexer.Token.eq) and token_int <= @intFromEnum(lexer.Token.conditional_eq)) {
+        while (token_int >= @intFromEnum(Token.eq) and token_int <= @intFromEnum(Token.conditional_eq)) {
             const op = ast.BinaryOp.from_token(self.current_token);
             self.skip();
-            const right = self.parse_condition();
-            left = .{ .binary_operation = .{ .left = &left, .right = &right, .kind = op } };
+            const right = try self.parse_condition();
+            left = .{
+                .binary_operation = .{
+                    .left = try InvariantBin(ast.Expr).init(self.allocator, left),
+                    .right = try InvariantBin(ast.Expr).init(self.allocator, right),
+                    .kind = op
+                }
+            };
         }
         return left;
     }
@@ -261,7 +294,7 @@ pub const Parser = struct {
 
 fn parse(source: lexer.Source, allocator: std.mem.Allocator) !std.ArrayList(ast.Statement) {
     var lex = lexer.Lexer.init(source);
-    var tokens = std.ArrayList(lexer.Token).init(allocator);
+    var tokens = std.ArrayList(Token).init(allocator);
     defer tokens.deinit();
 
     while (lex.has_tokens()) {
