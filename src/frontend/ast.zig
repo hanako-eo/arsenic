@@ -1,5 +1,5 @@
 const std = @import("std");
-const InvariantBin = @import("../utils/bin.zig").InvariantBin;
+const Bin = @import("../utils/bin.zig").Bin;
 
 const Token = @import("./token.zig").Token;
 const lexer = @import("./lexer.zig");
@@ -17,27 +17,55 @@ pub const Statement = union(enum) {
         type: ?Expr,
         statements: std.ArrayList(Statement),
     };
-    pub const Arg = struct {
-        name: Expr,
-        type: ?Expr
-    };
+    pub const Arg = struct { name: Expr, type: ?Expr };
 
-    exported: InvariantBin(Statement),
+    exported: Bin(Statement),
     expression: Expr,
     variable_declaration: VarDeclaration,
     function_declaration: FnDeclaration,
+
+    const Self = @This();
+    pub fn deinit(self: Self) void {
+        switch (self) {
+            .function_declaration => |f| {
+                for (f.args.items) |arg| {
+                    arg.name.deinit();
+                    if (arg.type) |t| {
+                        t.deinit();
+                    }
+                }
+                f.args.deinit();
+                if (f.type) |*t| {
+                    t.deinit();
+                }
+                for (f.statements.items) |s| {
+                    s.deinit();
+                }
+                f.statements.deinit();
+            },
+            .variable_declaration => |v| {
+                v.name.deinit();
+                v.value.deinit();
+                if (v.type) |t| {
+                    t.deinit();
+                }
+            },
+            .exported => |s| s.deinit(),
+            .expression => |e| e.deinit(),
+        }
+    }
 };
 
 pub const Expr = union(enum) {
     pub const Symbol = struct { name: []const u8, strictly_unique: bool };
 
     block: std.ArrayList(Statement),
-    parent: InvariantBin(Expr),
+    parent: Bin(Expr),
 
-    optional: InvariantBin(Expr),
+    optional: Bin(Expr),
 
-    unary_operation: struct { right: InvariantBin(Expr), kind: UnaryOp },
-    binary_operation: struct { left: InvariantBin(Expr), right: InvariantBin(Expr), kind: BinaryOp },
+    unary_operation: struct { right: Bin(Expr), kind: UnaryOp },
+    binary_operation: struct { left: Bin(Expr), right: Bin(Expr), kind: BinaryOp },
 
     ident: []const u8,
     char_litteral: []const u8,
@@ -47,6 +75,27 @@ pub const Expr = union(enum) {
     int_litteral: []const u8,
     bool_litteral: bool,
     null_litteral,
+
+    const Self = @This();
+    pub fn deinit(self: Self) void {
+        switch (self) {
+            .unary_operation => |u| {
+                u.right.deinit();
+            },
+            .binary_operation => |b| {
+                b.left.deinit();
+                b.right.deinit();
+            },
+            .block => |b| {
+                for (b.items) |s| {
+                    s.deinit();
+                }
+                b.deinit();
+            },
+            .optional, .parent => |e| e.deinit(),
+            else => {},
+        }
+    }
 };
 
 pub const UnaryOp = enum {

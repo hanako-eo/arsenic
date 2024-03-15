@@ -216,7 +216,7 @@ test "lexer parsing operators" {
     const input = "= += -= *= /= %= **= <<= >>= >>>= &= |= ^= ~= &&= ||= ??= ?= == != >= <= > < + - * / % ** << >> >>> & | ^ ~ && || ?? ...";
     var lex = Lexer.init(Source{ .buffer = input, .file_name = "test_file" });
 
-    var tokens = [_]Token{
+    const tokens = [_]Token{
         .eq,
         .plus_eq,
         .minus_eq,
@@ -274,7 +274,7 @@ test "lexer parsing ident and keywords" {
     const input = "test1 let const func return if else export null true false";
     var lex = Lexer.init(Source{ .buffer = input, .file_name = "test_file" });
 
-    var tokens = [_]Token{ .{ .ident = "test1" }, .kw_let, .kw_const, .kw_function, .kw_return, .kw_if, .kw_else, .kw_export, .kw_null, .kw_true, .kw_false, .eof };
+    const tokens = [_]Token{ .{ .ident = "test1" }, .kw_let, .kw_const, .kw_function, .kw_return, .kw_if, .kw_else, .kw_export, .kw_null, .kw_true, .kw_false, .eof };
 
     for (tokens) |token| {
         const tok = try lex.next_token();
@@ -287,7 +287,7 @@ test "lexer parsing number" {
     const input = "0 10 1.2 1. 0x1Af 0b101 0o7";
     var lex = Lexer.init(Source{ .buffer = input, .file_name = "test_file" });
 
-    var tokens = [_]Token{ .{ .number = "0" }, .{ .number = "10" }, .{ .number = "1.2" }, .{ .number = "1." }, .{ .number = "0x1Af" }, .{ .number = "0b101" }, .{ .number = "0o7" }, .eof };
+    const tokens = [_]Token{ .{ .number = "0" }, .{ .number = "10" }, .{ .number = "1.2" }, .{ .number = "1." }, .{ .number = "0x1Af" }, .{ .number = "0b101" }, .{ .number = "0o7" }, .eof };
 
     for (tokens) |token| {
         const tok = try lex.next_token();
@@ -300,7 +300,7 @@ test "lexer parsing string and char" {
     const input = "\"test\" 'a' 'é' '女'";
     var lex = Lexer.init(Source{ .buffer = input, .file_name = "test_file" });
 
-    var tokens = [_]Token{ .{ .string = "test" }, .{ .char = "a" }, .{ .char = "é" }, .{ .char = "女" }, .eof };
+    const tokens = [_]Token{ .{ .string = "test" }, .{ .char = "a" }, .{ .char = "é" }, .{ .char = "女" }, .eof };
 
     for (tokens) |token| {
         const tok = try lex.next_token();
