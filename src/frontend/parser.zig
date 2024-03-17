@@ -134,7 +134,14 @@ pub const Parser = struct {
     fn parse_var_declaration(self: *Self) Error!ast.Statement {
         const is_constant = self.check(.kw_const);
         self.skip();
-        const name = try self.parse_primitive();
+        const name = switch (self.current_token) {
+            .ident => |name| name,
+            else => {
+                std.log.err("invalid token expected an identifier but receive \"{}\"", .{self.current_token});
+                std.process.exit(1);
+            },
+        };
+        self.skip();
         var type_expr: ?ast.Expr = null;
         if (self.check(.colon)) {
             self.eat(.colon);
@@ -266,7 +273,7 @@ pub const Parser = struct {
 
 // FIXME: an error from the std (for the moment I'm checking that the tests don't leak memory)
 // $HOME/zig/lib/std/testing.zig:745:52: error: unable to resolve inferred error set
-//                         else => try expectEqualDeep(expected.*, actual.*), 
+//                         else => try expectEqualDeep(expected.*, actual.*),
 
 fn parse(source: lexer.Source, allocator: std.mem.Allocator) !std.ArrayList(ast.Statement) {
     var lex = lexer.Lexer.init(source);
@@ -296,7 +303,7 @@ test "parser parse variable declaration" {
     // const expected: ast.Statement = .{
     //     .variable_declaration = .{
     //         .constant = false,
-    //         .name = .{ .ident = "a" },
+    //         .name = "a",
     //         .type = null,
     //         .value = .{ .int_litteral = "0" }
     //     }
@@ -318,7 +325,7 @@ test "parser parse constant declaration" {
     // const expected: ast.Statement = .{
     //     .variable_declaration = .{
     //         .constant = true,
-    //         .name = .{ .ident = "a" },
+    //         .name = "a",
     //         .type = null,
     //         .value = .{ .int_litteral = "0" }
     //     }

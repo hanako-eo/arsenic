@@ -1,4 +1,4 @@
-pub const Error = error {
+pub const Error = error{
     AllocationOutOfMemory,
 
     InvalidNumberFormat,
@@ -13,9 +13,9 @@ pub const Error = error {
     UnauthorisedLitteral,
     OptionalChaining,
 
+    UndefinedVariable,
     AlreadyDeclareType,
     UnknowType,
     NonDeclarationGiven,
-    AlreadyDeclareVariable,
-    AlreadyDeclareFunction,
+    AlreadyDeclareAtRuntime,
 };

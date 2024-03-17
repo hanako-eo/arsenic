@@ -1,0 +1,147 @@
+const std = @import("std");
+const Bin = @import("../utils/bin.zig").Bin;
+const front_ast = @import("../frontend/ast.zig");
+
+const ast = @import("./ast.zig");
+const context = @import("../context.zig");
+const Error = @import("../errors.zig").Error;
+
+pub const Scanner = struct {
+    allocator: std.mem.Allocator,
+    context: *context.Context,
+
+    const Self = @This();
+    pub fn scan(allocator: std.mem.Allocator, scanner_context: *context.Context, statements: *const std.ArrayList(front_ast.Statement)) Error!std.ArrayList(ast.Statement) {
+        var scanner = Self{
+            .allocator = allocator,
+            .context = scanner_context,
+        };
+
+        return scanner.scan_statements(statements);
+    }
+
+    fn scan_statements(self: *Self, statements: *const std.ArrayList(front_ast.Statement)) Error!std.ArrayList(ast.Statement) {
+        var instructions = std.ArrayList(ast.Statement).init(self.allocator);
+
+        for (statements.items) |statement| {
+            instructions.append(try self.scan_statement(&statement, false)) catch return Error.AllocationOutOfMemory;
+        }
+
+        return instructions;
+    }
+
+    fn scan_statement(self: *Self, statement: *const front_ast.Statement, exported: bool) Error!ast.Statement {
+        return switch (statement.*) {
+            .exported => |exported_stmt| blk: {
+                if (!self.context.compare_kind(.module) and !self.context.compare_kind(.global))
+                    break :blk Error.NonModuleExport;
+
+                break :blk switch (exported_stmt.ptr.*) {
+                    .exported, .expression => Error.InvalidExport,
+                    else => try self.scan_statement(exported_stmt.ptr, true),
+                };
+            },
+            .expression => |expr| .{ .expression = try self.scan_expression(&expr) },
+            .variable_declaration => |variable| blk: {
+                const scanned_declaration = try self.scan_variable(variable, exported);
+                try self.context.declare_runtime(&scanned_declaration);
+
+                break :blk scanned_declaration;
+            },
+            .function_declaration => |function| blk: {
+                const scanned_declaration = try self.scan_function(function, exported);
+                try self.context.declare_runtime(&scanned_declaration);
+
+                break :blk scanned_declaration;
+            },
+        };
+    }
+
+    fn scan_variable(self: *Self, variable: front_ast.Statement.VarDeclaration, exported: bool) Error!ast.Statement {
+        return .{ .variable_declaration = .{
+            .constant = variable.constant,
+            .name = variable.name,
+            .type = if (variable.type) |return_type|
+                try self.scan_type(&return_type)
+            else
+                .none,
+            .value = try self.scan_expression(&variable.value),
+            .exported = exported,
+        } };
+    }
+
+    fn scan_function(self: *Self, function: front_ast.Statement.FnDeclaration, exported: bool) Error!ast.Statement {
+        const parent_context = self.context;
+        defer self.context = parent_context;
+
+        var function_context = context.Context.init(self.allocator, .function, parent_context);
+        self.context = &function_context;
+
+        return .{ .function_declaration = .{
+            .name = function.name,
+            .args = try self.scan_fn_args(function.args),
+            .type = if (function.type) |return_type| try self.scan_type(&return_type) else .void_litteral,
+            .statements = try self.scan_statements(&function.statements),
+            .context = function_context,
+            .exported = exported,
+        } };
+    }
+
+    fn scan_fn_args(self: *Self, args: std.ArrayList(front_ast.Statement.Arg)) Error!std.ArrayList(ast.Statement.Arg) {
+        var scanned_args = std.ArrayList(ast.Statement.Arg).init(self.allocator);
+
+        for (args.items) |arg| {
+            scanned_args.append(.{
+                .name = try self.scan_expression(&arg.name),
+                .type = if (arg.type) |return_type|
+                    try self.scan_type(&return_type)
+                else
+                    .none,
+            }) catch return Error.AllocationOutOfMemory;
+        }
+
+        return scanned_args;
+    }
+
+    fn scan_expression(self: *Self, expr: *const front_ast.Expr) Error!ast.Expr {
+        return switch (expr.*) {
+            .optional => Error.InvalidOptionExpression,
+            .block => |statements| .{ .block = try self.scan_statements(&statements) },
+            .parent => |p_expr| .{ .parent = try Bin(ast.Expr).init(self.allocator, try self.scan_expression(p_expr.ptr)) },
+            .unary_operation => |unary| .{ .unary_operation = .{ .right = try Bin(ast.Expr).init(self.allocator, try self.scan_expression(unary.right.ptr)), .kind = unary.kind } },
+            .binary_operation => |binary| .{ .binary_operation = .{ .left = try Bin(ast.Expr).init(self.allocator, try self.scan_expression(binary.left.ptr)), .right = try Bin(ast.Expr).init(self.allocator, try self.scan_expression(binary.right.ptr)), .kind = binary.kind } },
+
+            .ident => |value| blk: {
+                if (!self.context.has_at_runtime(value))
+                    return Error.UndefinedVariable;
+
+                break :blk .{ .ident = value };
+            },
+            .char_litteral => |value| .{ .char_litteral = value },
+            .string_litteral => |value| .{ .string_litteral = value },
+            .symbol_litteral => |value| .{ .symbol_litteral = value },
+            .float_litteral => |value| .{ .float_litteral = value },
+            .int_litteral => |value| .{ .int_litteral = value },
+            .bool_litteral => |value| .{ .bool_litteral = value },
+            .null_litteral => .null_litteral,
+        };
+    }
+
+    fn scan_type(self: *Self, expr: *const front_ast.Expr) Error!ast.Type {
+        return switch (expr.*) {
+            .optional => |optional_expr| switch (optional_expr.ptr.*) {
+                .optional => Error.OptionalChaining,
+                else => .{ .optional = try Bin(ast.Type).init(self.allocator, try self.scan_type(optional_expr.ptr)) },
+            },
+            .parent => |p_expr| try self.scan_type(p_expr.ptr),
+            .ident => |name| if (std.mem.eql(u8, name, "void"))
+                .void_litteral
+            else
+                .{ .ident = name },
+
+            .unary_operation, .binary_operation => Error.UnauthorisedOperation,
+
+            else => Error.UnauthorisedLitteral,
+        };
+    }
+};

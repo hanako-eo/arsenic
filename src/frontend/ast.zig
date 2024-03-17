@@ -7,7 +7,7 @@ const lexer = @import("./lexer.zig");
 pub const Statement = union(enum) {
     pub const VarDeclaration = struct {
         constant: bool,
-        name: Expr,
+        name: []const u8,
         type: ?Expr,
         value: Expr,
     };
@@ -44,7 +44,6 @@ pub const Statement = union(enum) {
                 f.statements.deinit();
             },
             .variable_declaration => |v| {
-                v.name.deinit();
                 v.value.deinit();
                 if (v.type) |t| {
                     t.deinit();
