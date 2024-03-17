@@ -6,6 +6,12 @@ const ast = @import("./ast.zig");
 const context = @import("../context.zig");
 const Error = @import("../errors.zig").Error;
 
+const AttribuableStatements = enum(u8) {
+    variable = 0b1,
+    function = 0b10,
+    type = 0b100,
+};
+
 pub const Scanner = struct {
     allocator: std.mem.Allocator,
     context: *context.Context,
@@ -54,11 +60,18 @@ pub const Scanner = struct {
 
                 break :blk scanned_declaration;
             },
+            .type_definition => |type_| blk: {
+                const scanned_definition = try self.scan_type_definition(type_, exported);
+                try self.context.declare_type(&scanned_definition);
+
+                break :blk .{ .type_definition = scanned_definition };
+            },
         };
     }
 
     fn scan_variable(self: *Self, variable: front_ast.Statement.VarDeclaration, exported: bool) Error!ast.Statement {
         return .{ .variable_declaration = .{
+            .attributes = try self.scan_attributes(.variable, &variable.attributes),
             .constant = variable.constant,
             .name = variable.name,
             .type = if (variable.type) |return_type|
@@ -78,6 +91,7 @@ pub const Scanner = struct {
         self.context = &function_context;
 
         return .{ .function_declaration = .{
+            .attributes = try self.scan_attributes(.function, &function.attributes),
             .name = function.name,
             .args = try self.scan_fn_args(function.args),
             .type = if (function.type) |return_type| try self.scan_type(&return_type) else .void_litteral,
@@ -103,13 +117,51 @@ pub const Scanner = struct {
         return scanned_args;
     }
 
+    fn scan_type_definition(self: *Self, type_: front_ast.Statement.TypeDefinition, exported: bool) Error!ast.TypeDefinition {
+        return .{
+            .attributes = try self.scan_attributes(.type, &type_.attributes),
+            .name = type_.name,
+            .value = try self.scan_type(&type_.value),
+            .exported = exported,
+        };
+    }
+
+    const defined_attributes = std.ComptimeStringMap(struct { @"0": AttribuableStatements, @"1": ast.Attribute }, .{
+        .{ "global", .{ .type, .global } },
+    });
+
+    fn scan_attributes(self: *Self, attr_kind: AttribuableStatements, attrs: *const std.ArrayList(front_ast.Statement.Attribute)) Error!std.ArrayList(ast.Attribute) {
+        var attributes: std.ArrayList(ast.Attribute) = std.ArrayList(ast.Attribute).initCapacity(self.allocator, attrs.capacity) catch return Error.AllocationOutOfMemory;
+        errdefer attributes.deinit();
+
+        for (attrs.items) |attribute| {
+            if (defined_attributes.get(attribute.name)) |autorised_kind| {
+                if (@intFromEnum(autorised_kind.@"0") & @intFromEnum(attr_kind) == 0)
+                    return Error.IncorrectAttribute;
+
+                attributes.appendAssumeCapacity(autorised_kind.@"1");
+            } else return Error.AttributeDoesNotExist;
+        }
+
+        return attributes;
+    }
+
     fn scan_expression(self: *Self, expr: *const front_ast.Expr) Error!ast.Expr {
         return switch (expr.*) {
             .optional => Error.InvalidOptionExpression,
             .block => |statements| .{ .block = try self.scan_statements(&statements) },
-            .parent => |p_expr| .{ .parent = try Bin(ast.Expr).init(self.allocator, try self.scan_expression(p_expr.ptr)) },
-            .unary_operation => |unary| .{ .unary_operation = .{ .right = try Bin(ast.Expr).init(self.allocator, try self.scan_expression(unary.right.ptr)), .kind = unary.kind } },
-            .binary_operation => |binary| .{ .binary_operation = .{ .left = try Bin(ast.Expr).init(self.allocator, try self.scan_expression(binary.left.ptr)), .right = try Bin(ast.Expr).init(self.allocator, try self.scan_expression(binary.right.ptr)), .kind = binary.kind } },
+            .parent => |p_expr| .{
+                .parent = try Bin(ast.Expr).init(self.allocator, try self.scan_expression(p_expr.ptr)),
+            },
+            .unary_operation => |unary| .{ .unary_operation = .{
+                .right = try Bin(ast.Expr).init(self.allocator, try self.scan_expression(unary.right.ptr)),
+                .kind = unary.kind,
+            } },
+            .binary_operation => |binary| .{ .binary_operation = .{
+                .left = try Bin(ast.Expr).init(self.allocator, try self.scan_expression(binary.left.ptr)),
+                .right = try Bin(ast.Expr).init(self.allocator, try self.scan_expression(binary.right.ptr)),
+                .kind = binary.kind,
+            } },
 
             .ident => |value| blk: {
                 if (!self.context.has_at_runtime(value))
@@ -134,10 +186,17 @@ pub const Scanner = struct {
                 else => .{ .optional = try Bin(ast.Type).init(self.allocator, try self.scan_type(optional_expr.ptr)) },
             },
             .parent => |p_expr| try self.scan_type(p_expr.ptr),
-            .ident => |name| if (std.mem.eql(u8, name, "void"))
-                .void_litteral
-            else
-                .{ .ident = name },
+            .ident => |name| blk: {
+                if (std.mem.eql(u8, name, "void")) {
+                    break :blk .void_litteral;
+                } else {
+                    if (!self.context.has_type(name))
+                        return Error.UnknowType;
+
+                    break :blk .{ .ident = name };
+                }
+            },
+            .null_litteral => .null_litteral,
 
             .unary_operation, .binary_operation => Error.UnauthorisedOperation,
 

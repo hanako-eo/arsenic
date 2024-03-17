@@ -5,17 +5,27 @@ const Token = @import("./token.zig").Token;
 const lexer = @import("./lexer.zig");
 
 pub const Statement = union(enum) {
+    pub const Attribute = struct {
+        name: []const u8,
+    };
     pub const VarDeclaration = struct {
+        attributes: std.ArrayList(Attribute),
         constant: bool,
         name: []const u8,
         type: ?Expr,
         value: Expr,
     };
     pub const FnDeclaration = struct {
+        attributes: std.ArrayList(Attribute),
         name: []const u8,
         args: std.ArrayList(Arg),
         type: ?Expr,
         statements: std.ArrayList(Statement),
+    };
+    pub const TypeDefinition = struct {
+        attributes: std.ArrayList(Attribute),
+        name: []const u8,
+        value: Expr,
     };
     pub const Arg = struct { name: Expr, type: ?Expr };
 
@@ -23,11 +33,13 @@ pub const Statement = union(enum) {
     expression: Expr,
     variable_declaration: VarDeclaration,
     function_declaration: FnDeclaration,
+    type_definition: TypeDefinition,
 
     const Self = @This();
     pub fn deinit(self: Self) void {
         switch (self) {
             .function_declaration => |f| {
+                f.attributes.deinit();
                 for (f.args.items) |arg| {
                     arg.name.deinit();
                     if (arg.type) |t| {
@@ -44,10 +56,15 @@ pub const Statement = union(enum) {
                 f.statements.deinit();
             },
             .variable_declaration => |v| {
+                v.attributes.deinit();
                 v.value.deinit();
                 if (v.type) |t| {
                     t.deinit();
                 }
+            },
+            .type_definition => |t| {
+                t.attributes.deinit();
+                t.value.deinit();
             },
             .exported => |s| s.deinit(),
             .expression => |e| e.deinit(),

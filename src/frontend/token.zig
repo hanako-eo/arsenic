@@ -14,6 +14,7 @@ pub const Token = union(enum) {
     kw_if,
     kw_else,
     kw_export,
+    kw_type,
 
     kw_null,
     kw_true,
@@ -72,6 +73,7 @@ pub const Token = union(enum) {
     rparent,
     lbrace,
     rbrace,
+    hash_bracket,
     lbracket,
     rbracket,
 
@@ -87,6 +89,7 @@ pub const Token = union(enum) {
         .{ "if", .kw_if },
         .{ "else", .kw_else },
         .{ "export", .kw_export },
+        .{ "type", .kw_type },
 
         .{ "null", .kw_null },
         .{ "true", .kw_true },
@@ -147,6 +150,7 @@ pub const Token = union(enum) {
         .{ ")", .rparent },
         .{ "{", .lbrace },
         .{ "}", .rbrace },
+        .{ "#[", .hash_bracket },
         .{ "[", .lbracket },
         .{ "]", .rbracket },
     });

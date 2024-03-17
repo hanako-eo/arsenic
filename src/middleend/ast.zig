@@ -4,8 +4,13 @@ const Bin = @import("../utils/bin.zig").Bin;
 const ast = @import("../frontend/ast.zig");
 const context = @import("../context.zig");
 
+pub const Attribute = enum {
+    global,
+};
+
 pub const Statement = union(enum) {
     pub const VarDeclaration = struct {
+        attributes: std.ArrayList(Attribute),
         constant: bool,
         name: []const u8,
         type: Type,
@@ -13,6 +18,7 @@ pub const Statement = union(enum) {
         exported: bool,
     };
     pub const FnDeclaration = struct {
+        attributes: std.ArrayList(Attribute),
         name: []const u8,
         args: std.ArrayList(Arg),
         type: Type,
@@ -25,6 +31,7 @@ pub const Statement = union(enum) {
     expression: Expr,
     variable_declaration: VarDeclaration,
     function_declaration: FnDeclaration,
+    type_definition: TypeDefinition,
 
     const Self = @This();
     pub fn deinit(self: Self) void {
@@ -87,6 +94,12 @@ pub const Expr = union(enum) {
     }
 };
 
+pub const TypeDefinition = struct {
+    attributes: std.ArrayList(Attribute),
+    name: []const u8,
+    value: Type,
+    exported: bool,
+};
 pub const Type = union(enum) {
     pub const FnDefinition = struct {
         name: []const u8,
@@ -98,6 +111,7 @@ pub const Type = union(enum) {
     ident: []const u8,
     func: FnDefinition,
     void_litteral,
+    null_litteral,
     none,
 
     // TODO litterals, generics, tuples and more

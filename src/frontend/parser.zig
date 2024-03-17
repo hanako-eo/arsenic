@@ -51,20 +51,23 @@ pub const Parser = struct {
     fn parse_statements(self: *Self) Error!std.ArrayList(ast.Statement) {
         var statements = std.ArrayList(ast.Statement).init(self.allocator);
         while (!self.check(.eof)) {
-            if (try self.parse_statement()) |stmt|
+            if (try self.parse_statement(null)) |stmt|
                 statements.append(stmt) catch return Error.AllocationOutOfMemory;
         }
         return statements;
     }
 
     /// This function dispatches statement parsing
-    fn parse_statement(self: *Self) Error!?ast.Statement {
+    fn parse_statement(self: *Self, previous_attributes: ?std.ArrayList(ast.Statement.Attribute)) Error!?ast.Statement {
+        const attributes = previous_attributes orelse try self.parse_attributes();
+
         return switch (self.current_token) {
-            .kw_const, .kw_let => try self.parse_var_declaration(),
-            .kw_function => try self.parse_function(),
+            .kw_const, .kw_let => try self.parse_var_declaration(attributes),
+            .kw_function => try self.parse_function(attributes),
+            .kw_type => try self.parse_type(attributes),
             .kw_export => blk: {
                 self.eat(.kw_export);
-                if (try self.parse_statement()) |stmt| {
+                if (try self.parse_statement(attributes)) |stmt| {
                     break :blk .{ .exported = try Bin(ast.Statement).init(self.allocator, stmt) };
                 } else break :blk Error.InvalidExport;
             },
@@ -81,7 +84,7 @@ pub const Parser = struct {
     }
 
     /// Parse statement as follows `func fonction_name(args: type): type {code;}`
-    fn parse_function(self: *Self) Error!ast.Statement {
+    fn parse_function(self: *Self, attributes: std.ArrayList(ast.Statement.Attribute)) Error!ast.Statement {
         self.skip();
         const name = switch (self.current_token) {
             .ident => |name| name,
@@ -116,13 +119,14 @@ pub const Parser = struct {
         self.eat(.lbrace);
         var statements = std.ArrayList(ast.Statement).init(self.allocator);
         while (!self.check(.rbrace)) {
-            if (try self.parse_statement()) |stmt| {
+            if (try self.parse_statement(null)) |stmt| {
                 statements.append(stmt) catch return Error.AllocationOutOfMemory;
             } else break;
         }
         self.eat(.rbrace);
 
         return .{ .function_declaration = .{
+            .attributes = attributes,
             .name = name,
             .type = type_expr,
             .args = args,
@@ -131,7 +135,7 @@ pub const Parser = struct {
     }
 
     /// Parse statement as follows `const|let var_name: type = value;`
-    fn parse_var_declaration(self: *Self) Error!ast.Statement {
+    fn parse_var_declaration(self: *Self, attributes: std.ArrayList(ast.Statement.Attribute)) Error!ast.Statement {
         const is_constant = self.check(.kw_const);
         self.skip();
         const name = switch (self.current_token) {
@@ -151,7 +155,54 @@ pub const Parser = struct {
         const value = try self.parse_expression();
         self.eat(.semi_colon);
 
-        return .{ .variable_declaration = .{ .name = name, .type = type_expr, .value = value, .constant = is_constant } };
+        return .{ .variable_declaration = .{
+            .attributes = attributes,
+            .name = name,
+            .type = type_expr,
+            .value = value,
+            .constant = is_constant,
+        } };
+    }
+
+    /// Parse statement as follows `type type_name = value;`
+    fn parse_type(self: *Self, attributes: std.ArrayList(ast.Statement.Attribute)) Error!ast.Statement {
+        self.skip();
+        const name = switch (self.current_token) {
+            .ident => |name| name,
+            else => {
+                std.log.err("invalid token expected an identifier but receive \"{}\"", .{self.current_token});
+                std.process.exit(1);
+            },
+        };
+        self.skip();
+        self.eat(.eq);
+        const value = try self.parse_expression();
+        self.eat(.semi_colon);
+
+        return .{ .type_definition = .{
+            .attributes = attributes,
+            .name = name,
+            .value = value,
+        } };
+    }
+
+    fn parse_attributes(self: *Self) Error!std.ArrayList(ast.Statement.Attribute) {
+        var attributes = std.ArrayList(ast.Statement.Attribute).init(self.allocator);
+
+        while (self.check(.hash_bracket)) {
+            self.eat(.hash_bracket);
+            const name = switch (self.current_token) {
+                .ident => |name| name,
+                else => {
+                    std.log.err("invalid token expected an identifier but receive \"{}\"", .{self.current_token});
+                    std.process.exit(1);
+                },
+            };
+            attributes.append(.{ .name = name }) catch return Error.AllocationOutOfMemory;
+            self.eat(.rbracket);
+        }
+
+        return attributes;
     }
 
     fn parse_expression(self: *Self) Error!ast.Expr {
@@ -228,7 +279,11 @@ pub const Parser = struct {
             const op = ast.BinaryOp.from_token(self.current_token);
             self.skip();
             const right = try self.parse_unary();
-            left = .{ .binary_operation = .{ .left = try Bin(ast.Expr).init(self.allocator, left), .right = try Bin(ast.Expr).init(self.allocator, right), .kind = op } };
+            left = .{ .binary_operation = .{
+                .left = try Bin(ast.Expr).init(self.allocator, left),
+                .right = try Bin(ast.Expr).init(self.allocator, right),
+                .kind = op,
+            } };
         }
         return left;
     }
@@ -240,7 +295,11 @@ pub const Parser = struct {
             const op = ast.BinaryOp.from_token(self.current_token);
             self.skip();
             const right = try self.parse_factor();
-            left = .{ .binary_operation = .{ .left = try Bin(ast.Expr).init(self.allocator, left), .right = try Bin(ast.Expr).init(self.allocator, right), .kind = op } };
+            left = .{ .binary_operation = .{
+                .left = try Bin(ast.Expr).init(self.allocator, left),
+                .right = try Bin(ast.Expr).init(self.allocator, right),
+                .kind = op,
+            } };
         }
         return left;
     }
@@ -252,7 +311,11 @@ pub const Parser = struct {
             const op = ast.BinaryOp.from_token(self.current_token);
             self.skip();
             const right = try self.parse_term();
-            left = .{ .binary_operation = .{ .left = try Bin(ast.Expr).init(self.allocator, left), .right = try Bin(ast.Expr).init(self.allocator, right), .kind = op } };
+            left = .{ .binary_operation = .{
+                .left = try Bin(ast.Expr).init(self.allocator, left),
+                .right = try Bin(ast.Expr).init(self.allocator, right),
+                .kind = op,
+            } };
         }
         return left;
     }
@@ -265,7 +328,11 @@ pub const Parser = struct {
             const op = ast.BinaryOp.from_token(self.current_token);
             self.skip();
             const right = try self.parse_condition();
-            left = .{ .binary_operation = .{ .left = try Bin(ast.Expr).init(self.allocator, left), .right = try Bin(ast.Expr).init(self.allocator, right), .kind = op } };
+            left = .{ .binary_operation = .{
+                .left = try Bin(ast.Expr).init(self.allocator, left),
+                .right = try Bin(ast.Expr).init(self.allocator, right),
+                .kind = op,
+            } };
         }
         return left;
     }

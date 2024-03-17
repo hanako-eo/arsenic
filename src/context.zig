@@ -1,4 +1,5 @@
 const std = @import("std");
+const front_ast = @import("./frontend/ast.zig");
 const ast = @import("./middleend/ast.zig");
 
 const Error = @import("./errors.zig").Error;
@@ -6,13 +7,10 @@ const Error = @import("./errors.zig").Error;
 pub const ContextKind = enum { global, module, function, local };
 
 pub const Context = struct {
-    const FunctionDefinition = struct { args: std.ArrayList(*const ast.Type), return_type: *const ast.Type };
-    pub const TypeDefinition = struct { attributs: std.StringHashMap(*const ast.Type), methods: std.StringHashMap(FunctionDefinition) };
-
     global: *const Context,
     parent: ?*const Context,
     declarations: std.StringHashMap(*const ast.Statement),
-    types: std.StringHashMap(ast.Type),
+    types: std.StringHashMap(*const ast.TypeDefinition),
     kind: ContextKind,
     allocator: std.mem.Allocator,
 
@@ -22,7 +20,7 @@ pub const Context = struct {
             .kind = kind,
             .parent = parent,
             .global = undefined,
-            .types = std.StringHashMap(ast.Type).init(allocator),
+            .types = std.StringHashMap(*const ast.TypeDefinition).init(allocator),
             .declarations = std.StringHashMap(*const ast.Statement).init(allocator),
             .allocator = allocator,
         };
@@ -38,15 +36,6 @@ pub const Context = struct {
 
     pub fn deinit(self: *Self) void {
         self.declarations.deinit();
-
-        var types_iter = self.types.valueIterator();
-        while (types_iter.next()) |type_def| {
-            switch (type_def.*) {
-                .func => |func_definition| func_definition.args.deinit(),
-                else => {},
-            }
-        }
-
         self.types.deinit();
     }
 
@@ -54,10 +43,11 @@ pub const Context = struct {
         return self.kind == other;
     }
 
-    pub fn declare_type(self: *Self, name: []const u8, type_: ast.Type) Error!void {
-        if (self.types.get(name) != null)
+    pub fn declare_type(self: *Self, definition: *const ast.TypeDefinition) Error!void {
+        if (self.types.contains(definition.name))
             return Error.AlreadyDeclareType;
-        self.types.put(name, type_) catch return Error.AllocationOutOfMemory;
+
+        self.types.put(definition.name, definition) catch return Error.AllocationOutOfMemory;
     }
 
     pub fn get_type(self: *Self, name: []const u8) Error!ast.Type {
@@ -69,9 +59,9 @@ pub const Context = struct {
         };
     }
 
-    pub fn has_at_runtime(self: *const Self, name: []const u8) bool {
-        return self.declarations.contains(name) or switch (self.kind) {
-            .global, .module => false,
+    pub fn has_type(self: *const Self, name: []const u8) bool {
+        return self.types.contains(name) or switch (self.kind) {
+            .global => false,
             else => self.parent.?.has_at_runtime(name),
         };
     }
@@ -83,9 +73,16 @@ pub const Context = struct {
             else => return Error.NonDeclarationGiven,
         };
 
-        if (self.declarations.get(name) != null)
+        if (self.declarations.contains(name))
             return Error.AlreadyDeclareAtRuntime;
 
         self.declarations.put(name, declaration) catch return Error.AllocationOutOfMemory;
+    }
+
+    pub fn has_at_runtime(self: *const Self, name: []const u8) bool {
+        return self.declarations.contains(name) or switch (self.kind) {
+            .global, .module => false,
+            else => self.parent.?.has_at_runtime(name),
+        };
     }
 };

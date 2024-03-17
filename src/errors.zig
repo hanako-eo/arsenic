@@ -13,6 +13,8 @@ pub const Error = error{
     UnauthorisedLitteral,
     OptionalChaining,
 
+    IncorrectAttribute,
+    AttributeDoesNotExist,
     UndefinedVariable,
     AlreadyDeclareType,
     UnknowType,
