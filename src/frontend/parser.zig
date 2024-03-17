@@ -198,6 +198,7 @@ pub const Parser = struct {
                     std.process.exit(1);
                 },
             };
+            self.skip();
             attributes.append(.{ .name = name }) catch return Error.AllocationOutOfMemory;
             self.eat(.rbracket);
         }

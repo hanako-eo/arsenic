@@ -87,7 +87,7 @@ pub const Scanner = struct {
         const parent_context = self.context;
         defer self.context = parent_context;
 
-        var function_context = context.Context.init(self.allocator, .function, parent_context);
+        var function_context = context.Context.init(self.allocator, .function, parent_context, parent_context.global);
         self.context = &function_context;
 
         return .{ .function_declaration = .{

@@ -7,7 +7,7 @@ const Error = @import("./errors.zig").Error;
 pub const ContextKind = enum { global, module, function, local };
 
 pub const Context = struct {
-    global: *const Context,
+    global: *Context,
     parent: ?*const Context,
     declarations: std.StringHashMap(*const ast.Statement),
     types: std.StringHashMap(*const ast.TypeDefinition),
@@ -15,23 +15,15 @@ pub const Context = struct {
     allocator: std.mem.Allocator,
 
     const Self = @This();
-    pub fn init(allocator: std.mem.Allocator, kind: ContextKind, parent: ?*const Context) Self {
-        var context = Self{
+    pub fn init(allocator: std.mem.Allocator, kind: ContextKind, parent: ?*const Context, global: *Context) Self {
+        return Self{
             .kind = kind,
             .parent = parent,
-            .global = undefined,
+            .global = global,
             .types = std.StringHashMap(*const ast.TypeDefinition).init(allocator),
             .declarations = std.StringHashMap(*const ast.Statement).init(allocator),
             .allocator = allocator,
         };
-
-        if (parent) |p| {
-            context.global = p.global;
-        } else {
-            context.global = &context;
-        }
-
-        return context;
     }
 
     pub fn deinit(self: *Self) void {
@@ -44,6 +36,14 @@ pub const Context = struct {
     }
 
     pub fn declare_type(self: *Self, definition: *const ast.TypeDefinition) Error!void {
+        const is_global = for (definition.attributes.items) |attr| {
+            if (attr == .global)
+                break true;
+        } else false;
+
+        if (self.kind != .global and is_global)
+            return self.global.declare_type(definition);
+
         if (self.types.contains(definition.name))
             return Error.AlreadyDeclareType;
 
