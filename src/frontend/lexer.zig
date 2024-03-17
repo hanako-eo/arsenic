@@ -19,7 +19,7 @@ pub const Lexer = struct {
     ch: u8 = 0,
 
     pub fn init(source: Source) Self {
-        return Self{ .source = source, .ch = source.buffer[0] };
+        return Self{ .source = source, .ch = if (source.buffer.len == 0) 0 else source.buffer[0] };
     }
 
     pub fn has_tokens(self: *Self) bool {
