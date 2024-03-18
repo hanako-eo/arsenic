@@ -103,6 +103,18 @@ pub const Lexer = struct {
         const position = self.position;
 
         self.forward();
+
+        // test if it's @+, @* and more (for operation overloading)
+        // FIXME: I do too much, @(, @) shouldn't be possible but @[] for indexing yes 
+        var i = Token.operators.kvs.len;
+        while (i > 0) : (i -= 1) {
+            const operator = Token.operators.kvs[i - 1].key;
+            if (mem.startsWith(u8, self.source.buffer[self.position..], operator)) {
+                self.forward_n(operator.len);
+                return self.source.buffer[position..self.position];
+            }
+        }
+
         if (self.ch == '@') self.forward();
 
         while (std.ascii.isAlphanumeric(self.ch) or self.ch == '_' or self.ch == '$') {
@@ -301,6 +313,19 @@ test "lexer parsing string and char" {
     var lex = Lexer.init(Source{ .buffer = input, .file_name = "test_file" });
 
     const tokens = [_]Token{ .{ .string = "test" }, .{ .char = "a" }, .{ .char = "é" }, .{ .char = "女" }, .eof };
+
+    for (tokens) |token| {
+        const tok = try lex.next_token();
+
+        try expectEqualDeep(token, tok);
+    }
+}
+
+test "lexer parsing symbol" {
+    const input = "@test @@test2 @+";
+    var lex = Lexer.init(Source{ .buffer = input, .file_name = "test_file" });
+
+    const tokens = [_]Token{ .{ .symbol = "@test" }, .{ .symbol = "@@test2" }, .{ .symbol = "@+" }, .eof };
 
     for (tokens) |token| {
         const tok = try lex.next_token();
