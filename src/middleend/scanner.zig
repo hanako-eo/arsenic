@@ -156,11 +156,13 @@ pub const Scanner = struct {
             .unary_operation => |unary| .{ .unary_operation = .{
                 .right = try Bin(ast.Expr).init(self.allocator, try self.scan_expression(unary.right.ptr)),
                 .kind = unary.kind,
+                .type = .unknown,
             } },
             .binary_operation => |binary| .{ .binary_operation = .{
                 .left = try Bin(ast.Expr).init(self.allocator, try self.scan_expression(binary.left.ptr)),
                 .right = try Bin(ast.Expr).init(self.allocator, try self.scan_expression(binary.right.ptr)),
                 .kind = binary.kind,
+                .type = .unknown,
             } },
 
             .ident => |value| blk: {
@@ -169,11 +171,26 @@ pub const Scanner = struct {
 
                 break :blk .{ .ident = value };
             },
-            .char_litteral => |value| .{ .char_litteral = value },
-            .string_litteral => |value| .{ .string_litteral = value },
-            .symbol_litteral => |value| .{ .symbol_litteral = value },
-            .float_litteral => |value| .{ .float_litteral = value },
-            .int_litteral => |value| .{ .int_litteral = value },
+            .char_litteral => |value| .{ .char_litteral = .{
+                .value = value,
+                .type = .char,
+            } },
+            .string_litteral => |value| .{ .string_litteral = .{
+                .value = value,
+                .type = .string,
+            } },
+            .symbol_litteral => |value| .{ .symbol_litteral = .{
+                .value = value,
+                .type = .symbol,
+            } },
+            .float_litteral => |value| .{ .float_litteral = .{
+                .value = value,
+                .type = .float,
+            } },
+            .int_litteral => |value| .{ .int_litteral = .{
+                .value = value,
+                .type = .int,
+            } },
             .bool_litteral => |value| .{ .bool_litteral = value },
             .null_litteral => .null_litteral,
         };

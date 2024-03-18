@@ -61,15 +61,15 @@ pub const Expr = union(enum) {
     block: std.ArrayList(Statement),
     parent: Bin(Expr),
 
-    unary_operation: struct { right: Bin(Expr), kind: ast.UnaryOp },
-    binary_operation: struct { left: Bin(Expr), right: Bin(Expr), kind: ast.BinaryOp },
+    unary_operation: struct { right: Bin(Expr), kind: ast.UnaryOp, type: Type },
+    binary_operation: struct { left: Bin(Expr), right: Bin(Expr), kind: ast.BinaryOp, type: Type },
 
     ident: []const u8,
-    char_litteral: []const u8,
-    string_litteral: []const u8,
-    symbol_litteral: ast.Expr.Symbol,
-    float_litteral: []const u8,
-    int_litteral: []const u8,
+    char_litteral: struct { value: []const u8, type: Type },
+    string_litteral: struct { value: []const u8, type: Type },
+    symbol_litteral: struct { value: ast.Expr.Symbol, type: Type },
+    float_litteral: struct { value: []const u8, type: Type },
+    int_litteral: struct { value: []const u8, type: Type },
     bool_litteral: bool,
     null_litteral,
 
@@ -102,7 +102,6 @@ pub const TypeDefinition = struct {
 };
 pub const Type = union(enum) {
     pub const FnDefinition = struct {
-        name: []const u8,
         args: std.ArrayList(Statement.Arg),
         type: Bin(Type),
     };
@@ -110,8 +109,17 @@ pub const Type = union(enum) {
     optional: Bin(Type),
     ident: []const u8,
     func: FnDefinition,
+
+    int,
+    float,
+    char,
+    string,
+    symbol,
+    boolean,
+
     void_litteral,
     null_litteral,
+    unknown,
     none,
 
     // TODO litterals, generics, tuples and more
