@@ -9,8 +9,8 @@ pub const ContextKind = enum { global, module, function, local };
 pub const Context = struct {
     global: *Context,
     parent: ?*const Context,
-    declarations: std.StringHashMap(*const ast.Statement),
-    types: std.StringHashMap(*const ast.TypeDefinition),
+    declarations: std.StringHashMap(ast.Statement),
+    types: std.StringHashMap(ast.TypeDefinition),
     kind: ContextKind,
     allocator: std.mem.Allocator,
 
@@ -20,8 +20,8 @@ pub const Context = struct {
             .kind = kind,
             .parent = parent,
             .global = global,
-            .types = std.StringHashMap(*const ast.TypeDefinition).init(allocator),
-            .declarations = std.StringHashMap(*const ast.Statement).init(allocator),
+            .types = std.StringHashMap(ast.TypeDefinition).init(allocator),
+            .declarations = std.StringHashMap(ast.Statement).init(allocator),
             .allocator = allocator,
         };
     }
@@ -35,7 +35,7 @@ pub const Context = struct {
         return self.kind == other;
     }
 
-    pub fn declare_type(self: *Self, definition: *const ast.TypeDefinition) Error!void {
+    pub fn declare_type(self: *Self, definition: ast.TypeDefinition) Error!void {
         const is_global = for (definition.attributes.items) |attr| {
             if (attr == .global)
                 break true;
@@ -66,8 +66,8 @@ pub const Context = struct {
         };
     }
 
-    pub fn declare_runtime(self: *Self, declaration: *const ast.Statement) Error!void {
-        const name = switch (declaration.*) {
+    pub fn declare_runtime(self: *Self, declaration: ast.Statement) Error!void {
+        const name = switch (declaration) {
             .variable_declaration => |variable_declaration| variable_declaration.name,
             .function_declaration => |function_declaration| function_declaration.name,
             else => return Error.NonDeclarationGiven,

@@ -27,10 +27,10 @@ pub const Scanner = struct {
     }
 
     fn scan_statements(self: *Self, statements: *const std.ArrayList(front_ast.Statement)) Error!std.ArrayList(ast.Statement) {
-        var instructions = std.ArrayList(ast.Statement).init(self.allocator);
+        var instructions = std.ArrayList(ast.Statement).initCapacity(self.allocator, statements.items.len) catch return Error.AllocationOutOfMemory;
 
-        for (statements.items) |statement| {
-            instructions.append(try self.scan_statement(&statement, false)) catch return Error.AllocationOutOfMemory;
+        for (statements.items) |*statement| {
+            instructions.appendAssumeCapacity(try self.scan_statement(statement, false));
         }
 
         return instructions;
@@ -38,7 +38,7 @@ pub const Scanner = struct {
 
     fn scan_statement(self: *Self, statement: *const front_ast.Statement, exported: bool) Error!ast.Statement {
         return switch (statement.*) {
-            .exported => |exported_stmt| blk: {
+            .exported => |*exported_stmt| blk: {
                 if (!self.context.compare_kind(.module) and !self.context.compare_kind(.global))
                     break :blk Error.NonModuleExport;
 
@@ -47,29 +47,29 @@ pub const Scanner = struct {
                     else => try self.scan_statement(exported_stmt.ptr, true),
                 };
             },
-            .expression => |expr| .{ .expression = try self.scan_expression(&expr) },
-            .variable_declaration => |variable| blk: {
+            .expression => |*expr| .{ .expression = try self.scan_expression(expr) },
+            .variable_declaration => |*variable| blk: {
                 const scanned_declaration = try self.scan_variable(variable, exported);
-                try self.context.declare_runtime(&scanned_declaration);
+                try self.context.declare_runtime(scanned_declaration);
 
                 break :blk scanned_declaration;
             },
-            .function_declaration => |function| blk: {
+            .function_declaration => |*function| blk: {
                 const scanned_declaration = try self.scan_function(function, exported);
-                try self.context.declare_runtime(&scanned_declaration);
+                try self.context.declare_runtime(scanned_declaration);
 
                 break :blk scanned_declaration;
             },
-            .type_definition => |type_| blk: {
+            .type_definition => |*type_| blk: {
                 const scanned_definition = try self.scan_type_definition(type_, exported);
-                try self.context.declare_type(&scanned_definition);
+                try self.context.declare_type(scanned_definition);
 
                 break :blk .{ .type_definition = scanned_definition };
             },
         };
     }
 
-    fn scan_variable(self: *Self, variable: front_ast.Statement.VarDeclaration, exported: bool) Error!ast.Statement {
+    fn scan_variable(self: *Self, variable: *const front_ast.Statement.VarDeclaration, exported: bool) Error!ast.Statement {
         return .{ .variable_declaration = .{
             .attributes = try self.scan_attributes(.variable, &variable.attributes),
             .constant = variable.constant,
@@ -83,7 +83,7 @@ pub const Scanner = struct {
         } };
     }
 
-    fn scan_function(self: *Self, function: front_ast.Statement.FnDeclaration, exported: bool) Error!ast.Statement {
+    fn scan_function(self: *Self, function: *const front_ast.Statement.FnDeclaration, exported: bool) Error!ast.Statement {
         const parent_context = self.context;
         defer self.context = parent_context;
 
@@ -93,31 +93,31 @@ pub const Scanner = struct {
         return .{ .function_declaration = .{
             .attributes = try self.scan_attributes(.function, &function.attributes),
             .name = function.name,
-            .args = try self.scan_fn_args(function.args),
-            .type = if (function.type) |return_type| try self.scan_type(&return_type) else .void_litteral,
+            .args = try self.scan_fn_args(&function.args),
+            .type = if (function.type) |*return_type| try self.scan_type(return_type) else .void_litteral,
             .statements = try self.scan_statements(&function.statements),
             .context = function_context,
             .exported = exported,
         } };
     }
 
-    fn scan_fn_args(self: *Self, args: std.ArrayList(front_ast.Statement.Arg)) Error!std.ArrayList(ast.Statement.Arg) {
-        var scanned_args = std.ArrayList(ast.Statement.Arg).init(self.allocator);
+    fn scan_fn_args(self: *Self, args: *const std.ArrayList(front_ast.Statement.Arg)) Error!std.ArrayList(ast.Statement.Arg) {
+        var scanned_args = std.ArrayList(ast.Statement.Arg).initCapacity(self.allocator, args.items.len) catch return Error.AllocationOutOfMemory;
 
-        for (args.items) |arg| {
-            scanned_args.append(.{
+        for (args.items) |*arg| {
+            scanned_args.appendAssumeCapacity(.{
                 .name = try self.scan_expression(&arg.name),
                 .type = if (arg.type) |return_type|
                     try self.scan_type(&return_type)
                 else
                     .none,
-            }) catch return Error.AllocationOutOfMemory;
+            });
         }
 
         return scanned_args;
     }
 
-    fn scan_type_definition(self: *Self, type_: front_ast.Statement.TypeDefinition, exported: bool) Error!ast.TypeDefinition {
+    fn scan_type_definition(self: *Self, type_: *const front_ast.Statement.TypeDefinition, exported: bool) Error!ast.TypeDefinition {
         return .{
             .attributes = try self.scan_attributes(.type, &type_.attributes),
             .name = type_.name,
