@@ -63,6 +63,15 @@ pub const Lexer = struct {
                         return Token.operators.kvs[i - 1].value;
                     }
                 }
+
+                i = Token.symbols.kvs.len;
+                while (i > 0) : (i -= 1) {
+                    const operator = Token.symbols.kvs[i - 1].key;
+                    if (mem.startsWith(u8, self.source.buffer[self.position..], operator)) {
+                        self.forward_n(operator.len);
+                        return Token.symbols.kvs[i - 1].value;
+                    }
+                }
                 break :blk Error.IllegalChar;
             },
         };
@@ -105,7 +114,12 @@ pub const Lexer = struct {
         self.forward();
 
         // test if it's @+, @* and more (for operation overloading)
-        // FIXME: I do too much, @(, @) shouldn't be possible but @[] for indexing yes 
+        // @[] is the operator for indexing 
+        if (mem.startsWith(u8, self.source.buffer[self.position..], "[]")) {
+            self.forward_n(2);
+            return self.source.buffer[position..self.position];
+        }
+
         var i = Token.operators.kvs.len;
         while (i > 0) : (i -= 1) {
             const operator = Token.operators.kvs[i - 1].key;
@@ -322,10 +336,10 @@ test "lexer parsing string and char" {
 }
 
 test "lexer parsing symbol" {
-    const input = "@test @@test2 @+";
+    const input = "@test @@test2 @+ @[]";
     var lex = Lexer.init(Source{ .buffer = input, .file_name = "test_file" });
 
-    const tokens = [_]Token{ .{ .symbol = "@test" }, .{ .symbol = "@@test2" }, .{ .symbol = "@+" }, .eof };
+    const tokens = [_]Token{ .{ .symbol = "@test" }, .{ .symbol = "@@test2" }, .{ .symbol = "@+" }, .{ .symbol = "@[]" }, .eof };
 
     for (tokens) |token| {
         const tok = try lex.next_token();

@@ -97,7 +97,6 @@ pub const Token = union(enum) {
     });
 
     pub const operators = std.ComptimeStringMap(Token, .{
-        .{ "=", .eq },
         .{ "+=", .plus_eq },
         .{ "-=", .minus_eq },
         .{ "*=", .star_eq },
@@ -139,9 +138,12 @@ pub const Token = union(enum) {
         .{ "&&", .and_op },
         .{ "||", .or_op },
         .{ "??", .nullish },
-
-        .{ "...", .dotdotdot },
         .{ "?", .question },
+    });
+
+    pub const symbols = std.ComptimeStringMap(Token, .{
+        .{ "=", .eq },
+        .{ "...", .dotdotdot },
         .{ ".", .dot },
         .{ ",", .comma },
         .{ ":", .colon },
