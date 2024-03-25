@@ -16,10 +16,6 @@ pub fn Bin(comptime T: type) type {
             return Self{ .allocator = allocator, .ptr = ptr };
         }
 
-        pub fn write(self: *Self, value: T) void {
-            self.ptr.* = value;
-        }
-
         pub fn deinit(self: Self) void {
             if (@hasDecl(T, "deinit")) {
                 self.ptr.deinit();

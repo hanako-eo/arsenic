@@ -1,4 +1,6 @@
 const std = @import("std");
+const Rc = @import("./utils/rc.zig").Rc;
+
 const front_ast = @import("./frontend/ast.zig");
 const ast = @import("./middleend/ast.zig");
 
@@ -9,7 +11,7 @@ pub const ContextKind = enum { global, module, function, local };
 pub const Context = struct {
     global: *Context,
     parent: ?*const Context,
-    declarations: std.StringHashMap(ast.Statement),
+    declarations: std.StringHashMap(Rc(ast.Statement)),
     types: std.StringHashMap(ast.TypeDefinition),
     kind: ContextKind,
     allocator: std.mem.Allocator,
@@ -21,7 +23,7 @@ pub const Context = struct {
             .parent = parent,
             .global = global,
             .types = std.StringHashMap(ast.TypeDefinition).init(allocator),
-            .declarations = std.StringHashMap(ast.Statement).init(allocator),
+            .declarations = std.StringHashMap(Rc(ast.Statement)).init(allocator),
             .allocator = allocator,
         };
     }
@@ -36,13 +38,15 @@ pub const Context = struct {
     }
 
     pub fn declare_type(self: *Self, definition: ast.TypeDefinition) Error!void {
-        const is_global = for (definition.attributes.items) |attr| {
-            if (attr == .global)
-                break true;
-        } else false;
+        if (self.kind != .global) {
+            const is_global = for (definition.attributes.items) |attr| {
+                if (attr == .global)
+                    break true;
+            } else false;
 
-        if (self.kind != .global and is_global)
-            return self.global.declare_type(definition);
+            if (is_global)
+                return self.global.declare_type(definition);
+        }
 
         if (self.types.contains(definition.name))
             return Error.AlreadyDeclareType;
@@ -66,8 +70,8 @@ pub const Context = struct {
         };
     }
 
-    pub fn declare_runtime(self: *Self, declaration: ast.Statement) Error!void {
-        const name = switch (declaration) {
+    pub fn declare_runtime(self: *Self, declaration: Rc(ast.Statement)) Error!void {
+        const name = switch (declaration.deref().*) {
             .variable_declaration => |variable_declaration| variable_declaration.name,
             .function_declaration => |function_declaration| function_declaration.name,
             else => return Error.NonDeclarationGiven,

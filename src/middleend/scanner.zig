@@ -1,5 +1,6 @@
 const std = @import("std");
 const Bin = @import("../utils/bin.zig").Bin;
+const Rc = @import("../utils/rc.zig").Rc;
 const front_ast = @import("../frontend/ast.zig");
 
 const ast = @import("./ast.zig");
@@ -17,7 +18,7 @@ pub const Scanner = struct {
     context: *context.Context,
 
     const Self = @This();
-    pub fn scan(allocator: std.mem.Allocator, scanner_context: *context.Context, statements: *const std.ArrayList(front_ast.Statement)) Error!std.ArrayList(ast.Statement) {
+    pub fn scan(allocator: std.mem.Allocator, scanner_context: *context.Context, statements: *const std.ArrayList(front_ast.Statement)) Error!std.ArrayList(Rc(ast.Statement)) {
         var scanner = Self{
             .allocator = allocator,
             .context = scanner_context,
@@ -26,8 +27,8 @@ pub const Scanner = struct {
         return scanner.scan_statements(statements);
     }
 
-    fn scan_statements(self: *Self, statements: *const std.ArrayList(front_ast.Statement)) Error!std.ArrayList(ast.Statement) {
-        var instructions = std.ArrayList(ast.Statement).initCapacity(self.allocator, statements.items.len) catch return Error.AllocationOutOfMemory;
+    fn scan_statements(self: *Self, statements: *const std.ArrayList(front_ast.Statement)) Error!std.ArrayList(Rc(ast.Statement)) {
+        var instructions = std.ArrayList(Rc(ast.Statement)).initCapacity(self.allocator, statements.items.len) catch return Error.AllocationOutOfMemory;
 
         for (statements.items) |*statement| {
             instructions.appendAssumeCapacity(try self.scan_statement(statement, false));
@@ -36,7 +37,7 @@ pub const Scanner = struct {
         return instructions;
     }
 
-    fn scan_statement(self: *Self, statement: *const front_ast.Statement, exported: bool) Error!ast.Statement {
+    fn scan_statement(self: *Self, statement: *const front_ast.Statement, exported: bool) Error!Rc(ast.Statement) {
         return switch (statement.*) {
             .exported => |*exported_stmt| blk: {
                 if (!self.context.compare_kind(.module) and !self.context.compare_kind(.global))
@@ -47,16 +48,16 @@ pub const Scanner = struct {
                     else => try self.scan_statement(exported_stmt.ptr, true),
                 };
             },
-            .expression => |*expr| .{ .expression = try self.scan_expression(expr) },
+            .expression => |*expr| try Rc(ast.Statement).init(self.allocator, .{ .expression = try self.scan_expression(expr) }),
             .variable_declaration => |*variable| blk: {
-                const scanned_declaration = try self.scan_variable(variable, exported);
-                try self.context.declare_runtime(scanned_declaration);
+                const scanned_declaration = try Rc(ast.Statement).init(self.allocator, try self.scan_variable(variable, exported));
+                try self.context.declare_runtime(scanned_declaration.clone());
 
                 break :blk scanned_declaration;
             },
             .function_declaration => |*function| blk: {
-                const scanned_declaration = try self.scan_function(function, exported);
-                try self.context.declare_runtime(scanned_declaration);
+                const scanned_declaration = try Rc(ast.Statement).init(self.allocator, try self.scan_function(function, exported));
+                try self.context.declare_runtime(scanned_declaration.clone());
 
                 break :blk scanned_declaration;
             },
@@ -64,7 +65,7 @@ pub const Scanner = struct {
                 const scanned_definition = try self.scan_type_definition(type_, exported);
                 try self.context.declare_type(scanned_definition);
 
-                break :blk .{ .type_definition = scanned_definition };
+                break :blk try Rc(ast.Statement).init(self.allocator, .{ .type_definition = scanned_definition });
             },
         };
     }
@@ -169,28 +170,13 @@ pub const Scanner = struct {
                 if (!self.context.has_at_runtime(value))
                     return Error.UndefinedVariable;
 
-                break :blk .{ .ident = value };
+                break :blk .{ .ident = .{ .value = value, .type = .unknown } };
             },
-            .char_litteral => |value| .{ .char_litteral = .{
-                .value = value,
-                .type = .char,
-            } },
-            .string_litteral => |value| .{ .string_litteral = .{
-                .value = value,
-                .type = .string,
-            } },
-            .symbol_litteral => |value| .{ .symbol_litteral = .{
-                .value = value,
-                .type = .symbol,
-            } },
-            .float_litteral => |value| .{ .float_litteral = .{
-                .value = value,
-                .type = .float,
-            } },
-            .int_litteral => |value| .{ .int_litteral = .{
-                .value = value,
-                .type = .int,
-            } },
+            .char_litteral => |value| .{ .char_litteral = value },
+            .string_litteral => |value| .{ .string_litteral = value },
+            .symbol_litteral => |value| .{ .symbol_litteral = value },
+            .float_litteral => |value| .{ .float_litteral = value },
+            .int_litteral => |value| .{ .int_litteral = value },
             .bool_litteral => |value| .{ .bool_litteral = value },
             .null_litteral => .null_litteral,
         };
