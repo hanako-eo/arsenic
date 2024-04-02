@@ -20,4 +20,6 @@ pub const Error = error{
     UnknowType,
     NonDeclarationGiven,
     AlreadyDeclareAtRuntime,
+
+    InvalidType,
 };

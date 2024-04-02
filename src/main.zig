@@ -1,10 +1,12 @@
 const std = @import("std");
-const lexer = @import("./frontend/lexer.zig");
-const parser = @import("./frontend/parser.zig");
+const token = @import("./frontend/token.zig");
+const Lexer = @import("./frontend/lexer.zig");
+const Parser = @import("./frontend/parser.zig");
 
-const ast_t = @import("./middleend/ast.zig");
+const Scanner = @import("./middleend/scanner.zig");
+const TypeResolver = @import("./middleend/type_resolver.zig");
 
-const context = @import("./context.zig");
+const Context = @import("./context.zig");
 const File = @import("./file.zig").File;
 
 const log = std.log;
@@ -28,18 +30,39 @@ pub fn main() !void {
 
     const buffer = try file.read();
 
-    var global_context = context.Context.init(allocator, context.ContextKind.global, null);
+    var global_context = Context.init(allocator, Context.ContextKind.global, null, undefined);
     defer global_context.deinit();
 
-    var lex = lexer.Lexer.init(.{ .file_name = args[1], .buffer = buffer });
-    var tokens = std.ArrayList(lexer.Token).init(allocator);
+    var module_context = Context.init(allocator, Context.ContextKind.module, &global_context, &global_context);
+    defer module_context.deinit();
+
+    var lex = Lexer.init(.{ .file_name = args[1], .buffer = buffer });
+    var tokens = std.ArrayList(token.Token).init(allocator);
 
     while (lex.has_tokens()) {
         try tokens.append(try lex.next_token());
     }
     try tokens.append(.eof);
 
-    var ast = try parser.Parser.parse(allocator, &tokens);
-    _ = ast;
+    var ast = try Parser.parse(allocator, &tokens);
     tokens.deinit();
+
+    var scanned_ast = try Scanner.scan(allocator, &module_context, &ast);
+    for (ast.items) |s| {
+        s.deinit();
+    }
+    ast.deinit();
+
+    try TypeResolver.resolve(allocator, &module_context, &scanned_ast);
+
+    var a = module_context.runtimes.keyIterator();
+    while (a.next()) |b| {
+        std.debug.print("{s} has the type {}\n", .{ b.*, module_context.runtimes.get(b.*).?.variable.deref().type });
+    }
+}
+
+test "import other tests" {
+    _ = @import("./frontend/lexer.zig");
+    _ = @import("./frontend/parser.zig");
+    _ = @import("./middleend/scanner.zig");
 }
