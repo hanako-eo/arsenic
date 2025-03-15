@@ -1,0 +1,11 @@
+zig-cache/
+zig-out/
+/release/
+/debug/
+/build/
+/build-*/
+
+
+# Added by cargo
+
+/target
