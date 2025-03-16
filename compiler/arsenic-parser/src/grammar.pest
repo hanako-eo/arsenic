@@ -1,0 +1,138 @@
+WHITESPACE = _{
+    // Usual ASCII suspects
+    "\u{0009}"   // \t
+    | "\u{000A}" // \n
+    | "\u{000B}" // vertical tab
+    | "\u{000C}" // form feed
+    | "\u{000D}" // \r
+    | "\u{0020}" // space
+
+    // NEXT LINE from latin1
+    | "\u{0085}"
+
+    // Dedicated whitespace characters from Unicode
+    | "\u{2028}" // LINE SEPARATOR
+    | "\u{2029}" // PARAGRAPH SEPARATOR
+}
+
+COMMENT = _{ comment_line | comment_multiline }
+/// rule to parse one line comment
+comment_line = _{ "//" ~ (!"\n" ~ ANY)* ~ "\n" }
+/// rule to parse multi line comment
+comment_multiline = _{ "/*" ~ (!("*/") ~ ANY)* ~ ("*/" | EOI) }
+
+unicode_letter = _{
+    UPPERCASE_LETTER |
+    LOWERCASE_LETTER |
+    TITLECASE_LETTER |
+    MODIFIER_LETTER |
+    OTHER_LETTER |
+    LETTER_NUMBER
+}
+identifier_start = _{ &(unicode_letter | "$" | "_") }
+identifier_rest = _{ unicode_letter | "$" | "_" | ASCII_DIGIT }
+identifier = ${ identifier_start ~ identifier_rest* }
+
+integer = ${
+    (("0b" | "0B") ~ #value = (ASCII_BIN_DIGIT | "_")+) |
+    (("0o" | "0O") ~ #value = (ASCII_OCT_DIGIT | "_")+) |
+    (("0x" | "0X") ~ #value = (ASCII_HEX_DIGIT | "_")+) |
+    #value = ASCII_DIGIT ~ (ASCII_DIGIT | "_")*
+}
+
+float_simple = _{
+    // [0-9][0-9_]*.[0-9][0-9_]*
+    ASCII_DIGIT ~ (ASCII_DIGIT | "_")* ~ "." ~ ASCII_DIGIT ~ (ASCII_DIGIT | "_")* | 
+    // .[0-9][0-9_]*
+    "." ~ ASCII_DIGIT ~ (ASCII_DIGIT | "_")*
+}
+// <float_simple>((e|E)(+|-)?[0-9][0-9_]*)?
+float_exposant = _{ float_simple ~ &(("e" | "E") ~ ("+" | "-")? ~ ASCII_DIGIT ~ (ASCII_DIGIT | "_")*) }
+// [0-9][0-9_]*(e|E)(+|-)?[0-9][0-9_]*
+int_exposant = _{ ASCII_DIGIT ~ (ASCII_DIGIT | "_")* ~ &(("e" | "E") ~ ("+" | "-")? ~ ASCII_DIGIT ~ (ASCII_DIGIT | "_")*) }
+float = ${ int_exposant | float_exposant | float_simple }
+
+nullish_eq = { "??=" }
+lshift_eq  = { "<<=" }
+rshift_eq  = { ">>=" }
+and_eq     = { "&&=" }
+or_eq      = { "||=" }
+pow_eq     = { "**=" }
+
+add_eq     = { "+=" }
+sub_eq     = { "-=" }
+mul_eq     = { "*=" }
+div_eq     = { "/=" }
+rem_eq     = { "%=" }
+bwand_eq   = { "&=" }
+bwor_eq    = { "|=" }
+bwxor_eq   = { "^=" }
+bwnot_eq   = { "~=" }
+equality   = { "==" }
+inequality = { "!=" }
+gt_eq      = { ">=" }
+lt_eq      = { "<=" }
+pow        = { "**" }
+lshift     = { "<<" }
+rshift     = { ">>" }
+and        = { "&&" }
+or         = { "||" }
+nullish    = { "??" }
+
+gt        = { ">" }
+lt        = { "<" }
+add       = { "+" }
+sub       = { "-" }
+mul       = { "*" }
+div       = { "/" }
+rem       = { "%" }
+bwand     = { "&" }
+bwor      = { "|" }
+bwxor     = { "^" }
+eq        = { "=" }
+dot       = { "." }
+
+plus  = { "+" }
+neg   = { "-" }
+not   = { "!" }
+bwnot = { "~" }
+
+early_ret = { "?" }
+
+comma = _{ "," }
+open_parent = _{ "(" }
+close_parent = _{ ")" }
+open_bracket = _{ "[" }
+close_bracket = _{ "]" }
+
+infix    =  _{
+    nullish_eq | lshift_eq | rshift_eq | and_eq | or_eq | pow_eq | add_eq |
+    sub_eq | mul_eq | div_eq | rem_eq | bwand_eq | bwor_eq | bwxor_eq | bwnot_eq |
+    equality | inequality | gt_eq | lt_eq | pow | lshift | rshift | and | or |
+    nullish | gt | lt | add | sub | mul | div | rem | bwand | bwor | bwxor |
+    eq | dot
+}
+prefix   =  _{ plus | neg | not | bwnot }
+postfix  =  _{ early_ret }
+primary  =  _{
+    integer | float | call | access | identifier | open_parent ~ expression ~ close_parent
+}
+
+access = { identifier ~ open_bracket ~ expression ~ close_bracket }
+call = { identifier ~ open_parent ~ (expression ~ (comma ~ expression)*)? ~ comma? ~ close_parent }
+expression = { prefix? ~ primary ~ postfix? ~ (infix ~ prefix? ~ primary ~ postfix? )* }
+
+let_declaration = {
+    "let" ~ identifier ~ (":" ~ expression)? ~ "=" ~ expression ~ ";"
+}
+function_args = {
+    (expression ~ ":" ~ expression ~ (comma ~ expression ~ ":" ~ expression)*)? ~ comma?
+}
+function_declaration = {
+    "func" ~ identifier ~ open_parent ~ function_args ~ close_parent ~ "->" ~ expression ~ "{" ~ (statement)* ~ "}"
+}
+statement = _{
+    let_declaration | function_declaration
+}
+
+main = { SOI ~ statement* ~ EOI }

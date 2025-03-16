@@ -1,0 +1,8 @@
+[package]
+name = "arsenic-parser"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+pest = { version = "2.7", features = ["miette-error"] }
+pest_derive = "2.7"

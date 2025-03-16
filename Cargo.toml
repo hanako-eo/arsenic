@@ -1,0 +1,9 @@
+[package]
+name = "arsenic"
+version = "0.1.0"
+edition = "2024"
+
+[workspace]
+members = ["compiler/arsenic-parser"]
+
+[dependencies]
