@@ -1,9 +1,14 @@
 use std::cell::LazyCell;
 
-use ast::{BinanyOp, Expression, Ident, LetDeclaration, Literal, LiteralKind, Module, Statement, UnaryOp};
+use ast::{
+    Arg, BinanyOp, Expression, FuncDeclaration, Ident, Literal, LiteralKind, Modifier, Module,
+    Statement, UnaryOp, VarDeclaration,
+};
+use enumflags2::BitFlag;
+use itertools::Itertools;
+use pest::Parser as P;
 use pest::iterators::{Pair, Pairs};
 use pest::pratt_parser::{Assoc, Op, PrattParser};
-use pest::Parser as P;
 use pest_derive::Parser;
 use span::Span;
 
@@ -12,34 +17,37 @@ mod span;
 
 const PRATT_PARSER: LazyCell<PrattParser<Rule>> = LazyCell::new(|| {
     PrattParser::new()
-        .op(
-            Op::infix(Rule::nullish_eq, Assoc::Right) |
-            Op::infix(Rule::lshift_eq, Assoc::Right) |
-            Op::infix(Rule::rshift_eq, Assoc::Right) |
-            Op::infix(Rule::and_eq, Assoc::Right) |
-            Op::infix(Rule::or_eq, Assoc::Right) |
-            Op::infix(Rule::pow_eq, Assoc::Right) |
-            Op::infix(Rule::add_eq, Assoc::Right) |
-            Op::infix(Rule::sub_eq, Assoc::Right) |
-            Op::infix(Rule::mul_eq, Assoc::Right) |
-            Op::infix(Rule::div_eq, Assoc::Right) |
-            Op::infix(Rule::rem_eq, Assoc::Right) |
-            Op::infix(Rule::bwand_eq, Assoc::Right) |
-            Op::infix(Rule::bwor_eq, Assoc::Right) |
-            Op::infix(Rule::bwxor_eq, Assoc::Right) |
-            Op::infix(Rule::bwnot_eq, Assoc::Right) |
-            Op::infix(Rule::eq, Assoc::Right)
-        )
+        .op(Op::infix(Rule::nullish_eq, Assoc::Right)
+            | Op::infix(Rule::lshift_eq, Assoc::Right)
+            | Op::infix(Rule::rshift_eq, Assoc::Right)
+            | Op::infix(Rule::and_eq, Assoc::Right)
+            | Op::infix(Rule::or_eq, Assoc::Right)
+            | Op::infix(Rule::pow_eq, Assoc::Right)
+            | Op::infix(Rule::add_eq, Assoc::Right)
+            | Op::infix(Rule::sub_eq, Assoc::Right)
+            | Op::infix(Rule::mul_eq, Assoc::Right)
+            | Op::infix(Rule::div_eq, Assoc::Right)
+            | Op::infix(Rule::rem_eq, Assoc::Right)
+            | Op::infix(Rule::bwand_eq, Assoc::Right)
+            | Op::infix(Rule::bwor_eq, Assoc::Right)
+            | Op::infix(Rule::bwxor_eq, Assoc::Right)
+            | Op::infix(Rule::bwnot_eq, Assoc::Right)
+            | Op::infix(Rule::eq, Assoc::Right))
         .op(Op::infix(Rule::nullish, Assoc::Left) | Op::infix(Rule::or, Assoc::Left))
         .op(Op::infix(Rule::and, Assoc::Left))
         .op(Op::infix(Rule::bwor, Assoc::Left))
         .op(Op::infix(Rule::bwxor, Assoc::Left))
         .op(Op::infix(Rule::bwand, Assoc::Left))
         .op(Op::infix(Rule::equality, Assoc::Left) | Op::infix(Rule::inequality, Assoc::Left))
-        .op(Op::infix(Rule::gt_eq, Assoc::Left) | Op::infix(Rule::gt, Assoc::Left) | Op::infix(Rule::lt_eq, Assoc::Left) | Op::infix(Rule::lt, Assoc::Left))
+        .op(Op::infix(Rule::gt_eq, Assoc::Left)
+            | Op::infix(Rule::gt, Assoc::Left)
+            | Op::infix(Rule::lt_eq, Assoc::Left)
+            | Op::infix(Rule::lt, Assoc::Left))
         .op(Op::infix(Rule::lshift, Assoc::Left) | Op::infix(Rule::rshift, Assoc::Left))
         .op(Op::infix(Rule::add, Assoc::Left) | Op::infix(Rule::sub, Assoc::Left))
-        .op(Op::infix(Rule::mul, Assoc::Left) | Op::infix(Rule::div, Assoc::Left) | Op::infix(Rule::rem, Assoc::Left))
+        .op(Op::infix(Rule::mul, Assoc::Left)
+            | Op::infix(Rule::div, Assoc::Left)
+            | Op::infix(Rule::rem, Assoc::Left))
         .op(Op::infix(Rule::pow, Assoc::Right))
         .op(Op::prefix(Rule::plus) | Op::prefix(Rule::neg))
         .op(Op::postfix(Rule::early_ret))
@@ -66,25 +74,72 @@ pub fn parse<'s>(file_id: FileId, input: &'s str) -> Result<Module, pest::error:
 }
 
 fn parse_compound<'i>(file_id: FileId, pairs: Pairs<'i, Rule>) -> Vec<Statement> {
-    pairs.filter_map(|pair| match pair.as_rule() {
-        Rule::let_declaration => {
-            let span = Span::from_pest(file_id, pair.as_span());
-            let mut inner = pair.into_inner();
-            let name = parse_ident(file_id, inner.next().unwrap());
-            let mut ty = inner.next().map(|pair| parse_expr(file_id, pair));
-            let value = inner.next().map(|pair| parse_expr(file_id, pair)).or_else(|| ty.take()).unwrap();
-            
-            Some(Statement::LetDeclaration(LetDeclaration {
+    pairs
+        .filter_map(|pair| match pair.as_rule() {
+            Rule::let_declaration | Rule::const_declaration => {
+                let span = Span::from_pest(file_id, pair.as_span());
+                let modifiers = match pair.as_rule() {
+                    Rule::let_declaration => Modifier::Mutability.into(),
+                    _ => Modifier::empty(),
+                };
+
+                let mut inner = pair.into_inner();
+                let name = parse_ident(file_id, inner.next().unwrap());
+                let mut ty = inner.next().map(|pair| parse_expr(file_id, pair));
+                let value = inner
+                    .next()
+                    .map(|pair| parse_expr(file_id, pair))
+                    .or_else(|| ty.take())
+                    .unwrap();
+
+                Some(Statement::VarDeclaration(VarDeclaration {
+                    modifiers,
+                    name,
+                    ty,
+                    value,
+                    span,
+                }))
+            }
+            Rule::function_declaration => {
+                let span = Span::from_pest(file_id, pair.as_span());
+                let mut inner = pair.into_inner();
+                let name = parse_ident(file_id, inner.next().unwrap());
+                let args = parse_args(file_id, inner.next().unwrap());
+                let return_ty = parse_expr(file_id, inner.next().unwrap());
+                let body = parse_compound(file_id, inner);
+
+                Some(Statement::FuncDeclaration(FuncDeclaration {
+                    name,
+                    args,
+                    return_ty,
+                    body,
+                    span,
+                }))
+            }
+            Rule::EOI => None,
+            _ => unreachable!(),
+        })
+        .collect::<Vec<_>>()
+}
+
+fn parse_args<'i>(file_id: FileId, pair: Pair<'i, Rule>) -> Vec<Arg> {
+    debug_assert!(pair.as_rule() == Rule::function_args);
+
+    pair.into_inner()
+        .chunks(2)
+        .into_iter()
+        .map(|mut arg| {
+            let name = parse_ident(file_id, arg.next().unwrap());
+            let ty = parse_expr(file_id, arg.next().unwrap());
+
+            Arg {
+                modifiers: Modifier::empty(),
+                span: name.span.extent_right(ty.span()),
                 name,
                 ty,
-                value,
-                span,
-            }))
-        },
-        Rule::EOI => None,
-        _ => unreachable!()
-    })
-    .collect::<Vec<_>>()
+            }
+        })
+        .collect()
 }
 
 fn parse_ident<'i>(file_id: FileId, pair: Pair<'i, Rule>) -> Ident {
@@ -106,15 +161,15 @@ fn parse_literal<'i>(file_id: FileId, pair: Pair<'i, Rule>) -> Literal {
             Rule::integer => LiteralKind::Int(pair.as_str().parse().unwrap()),
             Rule::float => LiteralKind::Float(pair.as_str().parse().unwrap()),
 
-            _ => unreachable!()
-        }
+            _ => unreachable!(),
+        },
     }
 }
 
 fn parse_expr<'i>(file_id: FileId, pair: Pair<'i, Rule>) -> Expression {
     let x = PRATT_PARSER
         .map_primary(|primary| match primary.as_rule() {
-            Rule::expression => parse_expr(file_id, primary), // from "(" ~ expr ~ ")"
+            Rule::expression | Rule::expression_ty => parse_expr(file_id, primary), // from "(" ~ expr ~ ")"
             Rule::integer | Rule::float => Expression::Literal(parse_literal(file_id, primary)),
             Rule::call => Expression::Ident(parse_ident(file_id, primary)),
             Rule::access => Expression::Ident(parse_ident(file_id, primary)),
@@ -146,10 +201,16 @@ fn parse_expr<'i>(file_id: FileId, pair: Pair<'i, Rule>) -> Expression {
             Rule::pow_eq => Expression::AssignOp(BinanyOp::Pow, Box::new(lhs), Box::new(rhs)),
             Rule::and_eq => Expression::AssignOp(BinanyOp::And, Box::new(lhs), Box::new(rhs)),
             Rule::or_eq => Expression::AssignOp(BinanyOp::Or, Box::new(lhs), Box::new(rhs)),
-            Rule::nullish_eq => Expression::AssignOp(BinanyOp::Nullish, Box::new(lhs), Box::new(rhs)),
+            Rule::nullish_eq => {
+                Expression::AssignOp(BinanyOp::Nullish, Box::new(lhs), Box::new(rhs))
+            }
 
-            Rule::equality => Expression::BinaryOp(BinanyOp::Equality, Box::new(lhs), Box::new(rhs)),
-            Rule::inequality => Expression::BinaryOp(BinanyOp::Inequality, Box::new(lhs), Box::new(rhs)),
+            Rule::equality => {
+                Expression::BinaryOp(BinanyOp::Equality, Box::new(lhs), Box::new(rhs))
+            }
+            Rule::inequality => {
+                Expression::BinaryOp(BinanyOp::Inequality, Box::new(lhs), Box::new(rhs))
+            }
             Rule::gt_eq => Expression::BinaryOp(BinanyOp::GtEq, Box::new(lhs), Box::new(rhs)),
             Rule::lt_eq => Expression::BinaryOp(BinanyOp::LtEq, Box::new(lhs), Box::new(rhs)),
             Rule::pow => Expression::BinaryOp(BinanyOp::Pow, Box::new(lhs), Box::new(rhs)),
